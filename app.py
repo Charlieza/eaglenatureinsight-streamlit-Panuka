@@ -235,6 +235,179 @@ def fmt_num(val, digits=1, suffix=""):
         return "—"
 
 
+
+def exposure_level(value, low_bad, low_threshold, high_threshold):
+    if value is None:
+        return "Unknown"
+    try:
+        v = float(value)
+    except Exception:
+        return "Unknown"
+    if low_bad:
+        if v <= low_threshold:
+            return "High"
+        if v <= high_threshold:
+            return "Moderate"
+        return "Low"
+    if v >= high_threshold:
+        return "High"
+    if v >= low_threshold:
+        return "Moderate"
+    return "Low"
+
+
+def build_overview_content(preset, category, metrics, risk):
+    findings = []
+    ndvi_current = metrics.get("ndvi_current")
+    rain_anom = metrics.get("rain_anom_pct")
+    ndvi_trend = metrics.get("ndvi_trend")
+
+    if ndvi_current is not None:
+        try:
+            if float(ndvi_current) < 0.25:
+                findings.append("Current vegetation condition is low and may indicate stressed or sparse vegetation in the assessed area.")
+            elif float(ndvi_current) < 0.45:
+                findings.append("Current vegetation condition is moderate, suggesting mixed vegetation performance across the site.")
+            else:
+                findings.append("Current vegetation condition is relatively strong, suggesting healthier vegetation cover in the assessed area.")
+        except Exception:
+            pass
+
+    if ndvi_trend is not None:
+        try:
+            if float(ndvi_trend) < -0.03:
+                findings.append("Historical vegetation trend is declining, which may point to growing ecological or land-management pressure.")
+            elif float(ndvi_trend) > 0.03:
+                findings.append("Historical vegetation trend is improving, which may reflect better ground cover or recovering vegetation.")
+        except Exception:
+            pass
+
+    if rain_anom is not None:
+        try:
+            if float(rain_anom) < -10:
+                findings.append("Recent rainfall is below the long-term baseline, which may increase water uncertainty for farming activities.")
+            elif float(rain_anom) > 10:
+                findings.append("Recent rainfall is above the long-term baseline, which may improve water availability but can also shift runoff and pest conditions.")
+        except Exception:
+            pass
+
+    if not findings:
+        findings.append("The site shows a mix of environmental signals that should be monitored over time rather than interpreted from a single indicator.")
+
+    narrative = (
+        "This overview gives a plain-language summary of the Panuka pilot site, highlighting the most important nature-related signals "
+        "for agribusiness screening and decision support. It is designed to help users quickly understand what the site depends on, "
+        "what may be changing, and where further attention may be needed."
+    )
+
+    business_relevance = (
+        "For Panuka, these results matter because water reliability, vegetation condition, and rainfall variability can affect farm resilience, "
+        "training and incubation support, production planning, and the way environmental performance is communicated to partners or funders."
+    )
+
+    return {
+        "narrative": narrative,
+        "findings": findings[:3],
+        "business_relevance": business_relevance,
+    }
+
+
+def build_evaluate_content(category, metrics):
+    dependencies = [
+        "The farm depends on reliable water availability for irrigation, crop growth, and day-to-day farm operations.",
+        "Vegetation condition and tree cover matter because they help with soil protection, microclimate stability, and ecological resilience.",
+        "Rainfall patterns and heat conditions matter because they influence crop stress, pest pressure, and farming uncertainty.",
+    ]
+
+    impacts = []
+    try:
+        if metrics.get("ndvi_trend") is not None and float(metrics.get("ndvi_trend")) < -0.03:
+            impacts.append("Vegetation decline suggests land pressure, ecological stress, or reduced ground cover in the surrounding landscape.")
+        else:
+            impacts.append("Vegetation condition does not show a strong decline signal, but should still be monitored over time.")
+    except Exception:
+        impacts.append("Vegetation condition should be monitored over time as part of routine screening.")
+
+    try:
+        if metrics.get("forest_loss_pct") is not None and float(metrics.get("forest_loss_pct")) > 5:
+            impacts.append("Forest loss is visible in the broader landscape, which may signal habitat pressure or land-use change.")
+        else:
+            impacts.append("Forest-loss pressure does not appear to be a dominant signal within the current assessment area.")
+    except Exception:
+        pass
+
+    try:
+        if metrics.get("water_occ") is not None and float(metrics.get("water_occ")) < 5:
+            impacts.append("Visible surface water is limited, which may increase dependence on groundwater, storage, or external supply.")
+    except Exception:
+        pass
+
+    signals = []
+    try:
+        ndvi = metrics.get("ndvi_current")
+        if ndvi is not None:
+            ndvi = float(ndvi)
+            if ndvi < 0.25:
+                signals.append("Current vegetation condition is low, which may point to stressed or sparse vegetation.")
+            elif ndvi < 0.45:
+                signals.append("Current vegetation condition is moderate, suggesting mixed vegetation performance across the site.")
+            else:
+                signals.append("Current vegetation condition is relatively strong, suggesting healthier vegetation cover in the assessed area.")
+    except Exception:
+        pass
+
+    try:
+        rain = metrics.get("rain_anom_pct")
+        if rain is not None:
+            rain = float(rain)
+            if rain < -10:
+                signals.append("Recent rainfall is below the long-term baseline, which may increase water uncertainty and climate stress.")
+            elif rain > 10:
+                signals.append("Recent rainfall is above the long-term baseline, which may improve water availability but can also shift pest, runoff, or flood conditions.")
+            else:
+                signals.append("Recent rainfall is broadly close to the long-term baseline, so rainfall alone does not suggest a major change signal.")
+    except Exception:
+        pass
+
+    try:
+        lst = metrics.get("lst_mean")
+        if lst is not None:
+            lst = float(lst)
+            if lst > 30:
+                signals.append("Heat conditions are elevated, which may increase crop stress, water demand, or site cooling needs.")
+            else:
+                signals.append("Heat conditions are present but not unusually elevated in the current screening output.")
+    except Exception:
+        pass
+
+    water_exposure = exposure_level(metrics.get("water_occ"), True, 5, 15)
+    heat_exposure = exposure_level(metrics.get("lst_mean"), False, 28, 30)
+
+    vegetation_exposure = "Unknown"
+    try:
+        ndvi = metrics.get("ndvi_current")
+        trend = metrics.get("ndvi_trend")
+        vegetation_exposure = "Low"
+        if (ndvi is not None and float(ndvi) < 0.25) or (trend is not None and float(trend) < -0.03):
+            vegetation_exposure = "High"
+        elif (ndvi is not None and float(ndvi) < 0.45) or (trend is not None and float(trend) < -0.01):
+            vegetation_exposure = "Moderate"
+    except Exception:
+        pass
+
+    return {
+        "narrative": "This section reviews the site's current environmental condition, historical change, and the main ways the business may depend on nature or place pressure on it. The aim is to translate the indicators into practical business meaning.",
+        "dependencies": dependencies,
+        "impacts": impacts,
+        "signals": signals,
+        "exposure_cards": [
+            {"label": "Water exposure", "value": water_exposure, "subtext": "Based on visible surface-water context"},
+            {"label": "Heat exposure", "value": heat_exposure, "subtext": "Based on recent land surface temperature"},
+            {"label": "Vegetation exposure", "value": vegetation_exposure, "subtext": "Based on current vegetation and trend"},
+        ],
+        "why_it_matters": "For Panuka, these signals matter because water reliability, vegetation condition, and heat stress can affect production, pest pressure, soil protection, and financial resilience.",
+    }
+
 def df_chart_to_png_bytes(df, x_col, y_col, title, kind="line", x_label="Year", y_label="Value"):
     if df is None or df.empty:
         return None
