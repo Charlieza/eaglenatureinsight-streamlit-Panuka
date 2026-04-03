@@ -10,7 +10,6 @@ from folium.plugins import Draw
 from streamlit_folium import st_folium
 import matplotlib.pyplot as plt
 import requests
-import ee
 
 from utils.ee_helpers import (
     initialize_ee_from_secrets,
@@ -140,11 +139,36 @@ def build_map(center, zoom, draw_mode, lat=None, lon=None, buffer_m=None, existi
             },
         ).add_to(m)
 
+    # Always show both Panuka pilot sites to make polygon drawing easier.
+    site_points = [
+        ("Panuka Site 1", PRESET_TO_LOCATION["Panuka Site 1"]["lat"], PRESET_TO_LOCATION["Panuka Site 1"]["lon"]),
+        ("Panuka Site 2", PRESET_TO_LOCATION["Panuka Site 2"]["lat"], PRESET_TO_LOCATION["Panuka Site 2"]["lon"]),
+    ]
+    active_label = None
+    for name, plat, plon in site_points:
+        is_active = lat is not None and lon is not None and str(lat) not in ["", "None"] and str(lon) not in ["", "None"] and abs(float(lat) - plat) < 0.0008 and abs(float(lon) - plon) < 0.0008
+        folium.CircleMarker(
+            [plat, plon],
+            radius=7 if is_active else 5,
+            color="#163d63" if is_active else "#1f8f5f",
+            weight=2,
+            fill=True,
+            fill_color="#163d63" if is_active else "#1f8f5f",
+            fill_opacity=0.95,
+            tooltip=name,
+        ).add_to(m)
+        folium.map.Marker(
+            [plat, plon],
+            icon=folium.DivIcon(html=f'<div style="font-size:11px;font-weight:600;color:#163d63;background:rgba(255,255,255,0.85);padding:2px 4px;border-radius:4px;">{name}</div>')
+        ).add_to(m)
+        if is_active:
+            active_label = name
+
     if draw_mode == "Enter coordinates":
         try:
             lat_val = float(lat)
             lon_val = float(lon)
-            folium.Marker([lat_val, lon_val], tooltip="Selected point").add_to(m)
+            folium.Marker([lat_val, lon_val], tooltip=active_label or "Selected point").add_to(m)
             if buffer_m:
                 folium.Circle(
                     [lat_val, lon_val],
@@ -257,179 +281,6 @@ def exposure_level(value, low_bad, low_threshold, high_threshold):
     return "Low"
 
 
-def safe_float(val):
-    try:
-        return float(val)
-    except Exception:
-        return None
-
-
-def greenhouse_detection_stats(geom, last_full_year):
-    s2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
-
-    def _mask(image):
-        scl = image.select("SCL")
-        mask = (
-            scl.neq(3)
-            .And(scl.neq(8))
-            .And(scl.neq(9))
-            .And(scl.neq(10))
-            .And(scl.neq(11))
-        )
-        return image.updateMask(mask)
-
-    img = (
-        s2.filterBounds(geom)
-        .filterDate(f"{last_full_year}-01-01", f"{last_full_year}-12-31")
-        .map(_mask)
-        .median()
-    )
-
-    worldcover = ee.Image("ESA/WorldCover/v200/2021").select("Map")
-    blue = img.select("B2")
-    green = img.select("B3")
-    red = img.select("B4")
-    nir = img.select("B8")
-    ndvi = img.normalizedDifference(["B8", "B4"]).rename("NDVI")
-    bright = blue.add(green).add(red)
-
-    greenhouse_mask = (
-        bright.gt(4200)
-        .And(ndvi.gt(-0.05))
-        .And(ndvi.lt(0.35))
-        .And(worldcover.eq(40).Or(worldcover.eq(50)))
-    )
-
-    area_ha = ee.Image.pixelArea().divide(10000).updateMask(greenhouse_mask).reduceRegion(
-        reducer=ee.Reducer.sum(), geometry=geom, scale=10, maxPixels=1e13
-    ).get("area")
-
-    total_ha = ee.Image.pixelArea().divide(10000).reduceRegion(
-        reducer=ee.Reducer.sum(), geometry=geom, scale=10, maxPixels=1e13
-    ).get("area")
-
-    pct = ee.Algorithms.If(
-        ee.Number(total_ha).gt(0), ee.Number(area_ha).divide(ee.Number(total_ha)).multiply(100), 0
-    )
-
-    return ee.Dictionary({
-        "greenhouse_ha": ee.Algorithms.If(area_ha, area_ha, 0),
-        "greenhouse_pct": pct,
-    }).getInfo()
-
-
-def derive_panuka_operational_metrics(metrics, greenhouse):
-    rain = safe_float(metrics.get("rain_anom_pct"))
-    water = safe_float(metrics.get("water_occ"))
-    heat = safe_float(metrics.get("lst_mean"))
-    ndvi = safe_float(metrics.get("ndvi_current"))
-    trend = safe_float(metrics.get("ndvi_trend"))
-    gh_pct = safe_float((greenhouse or {}).get("greenhouse_pct")) or 0.0
-    gh_ha = safe_float((greenhouse or {}).get("greenhouse_ha")) or 0.0
-
-    water_score = 100.0
-    if rain is not None:
-        water_score += max(-35.0, min(15.0, rain))
-    if water is not None:
-        water_score += min(10.0, water * 0.4) - 10.0
-    if trend is not None and trend < 0:
-        water_score += trend * 120.0
-    water_score = max(0.0, min(100.0, water_score))
-
-    if water_score >= 70:
-        water_label = "High"
-    elif water_score >= 45:
-        water_label = "Moderate"
-    else:
-        water_label = "Low"
-
-    soil_risk = "Low"
-    if (trend is not None and trend < -0.03) or (ndvi is not None and ndvi < 0.25):
-        soil_risk = "High"
-    elif (trend is not None and trend < -0.01) or (ndvi is not None and ndvi < 0.45):
-        soil_risk = "Moderate"
-
-    greenhouse_detected = gh_pct >= 0.2 or gh_ha >= 0.2
-
-    if heat is None:
-        heat_stress = "Unknown"
-    elif heat >= 32:
-        heat_stress = "High"
-    elif heat >= 29:
-        heat_stress = "Moderate"
-    else:
-        heat_stress = "Low"
-
-    if rain is None or heat is None:
-        humidity_risk = "Unknown"
-    elif rain > 5 and heat >= 28:
-        humidity_risk = "High"
-    elif rain > -5 and heat >= 26:
-        humidity_risk = "Moderate"
-    else:
-        humidity_risk = "Low"
-
-    pest_score = 0
-    pest_score += 2 if heat_stress == "High" else 1 if heat_stress == "Moderate" else 0
-    pest_score += 2 if humidity_risk == "High" else 1 if humidity_risk == "Moderate" else 0
-    pest_score += 1 if ndvi is not None and ndvi > 0.35 else 0
-    pest_risk = "High" if pest_score >= 4 else "Moderate" if pest_score >= 2 else "Low"
-
-    irrigation_demand = "High" if water_label == "Low" or heat_stress == "High" else "Moderate" if water_label == "Moderate" or heat_stress == "Moderate" else "Low"
-
-    production_reliability_score = 100.0
-    production_reliability_score -= (100.0 - water_score) * 0.35
-    production_reliability_score -= 18 if heat_stress == "High" else 8 if heat_stress == "Moderate" else 0
-    production_reliability_score -= 14 if soil_risk == "High" else 6 if soil_risk == "Moderate" else 0
-    production_reliability_score -= 10 if pest_risk == "High" else 4 if pest_risk == "Moderate" else 0
-    production_reliability_score = max(0.0, min(100.0, production_reliability_score))
-
-    funding_readiness = "Strong" if production_reliability_score >= 75 else "Moderate" if production_reliability_score >= 50 else "Needs support"
-
-    return {
-        "greenhouse_detected": greenhouse_detected,
-        "greenhouse_area_ha": gh_ha,
-        "greenhouse_pct": gh_pct,
-        "water_reliability_score": round(water_score, 1),
-        "water_reliability_label": water_label,
-        "soil_stress_risk": soil_risk,
-        "greenhouse_heat_stress": heat_stress,
-        "greenhouse_humidity_risk": humidity_risk,
-        "greenhouse_pest_risk": pest_risk,
-        "irrigation_demand": irrigation_demand,
-        "production_reliability_score": round(production_reliability_score, 1),
-        "funding_readiness": funding_readiness,
-    }
-
-
-def build_panuka_story(metrics, greenhouse, operational):
-    lines = []
-    if operational.get("greenhouse_detected"):
-        lines.append(
-            f"Satellite screening suggests about {fmt_num(operational.get('greenhouse_area_ha'),1,' ha')} of likely protected farming, roughly {fmt_num(operational.get('greenhouse_pct'),1,'%')} of the selected area."
-        )
-    else:
-        lines.append("Satellite screening did not detect a strong protected-farming signal in the selected area, so this looks more like open-field context than greenhouse-dominated farming.")
-
-    lines.append(
-        f"Water reliability is currently rated {operational.get('water_reliability_label','Unknown').lower()}, which matters because Panuka relies on irrigation, boreholes, and climate certainty to support farm production and SME incubation."
-    )
-
-    if operational.get("greenhouse_detected"):
-        lines.append(
-            f"For the greenhouse parts of the area, heat stress is {operational.get('greenhouse_heat_stress','Unknown').lower()}, humidity risk is {operational.get('greenhouse_humidity_risk','Unknown').lower()}, and pest conditions are {operational.get('greenhouse_pest_risk','Unknown').lower()}. These are satellite-based proxy insights, useful for screening but not a replacement for in-structure sensors or field checks."
-        )
-    else:
-        lines.append(
-            f"For open-field farming, heat stress is {operational.get('greenhouse_heat_stress','Unknown').lower()} and irrigation demand is {operational.get('irrigation_demand','Unknown').lower()}, which helps indicate pressure on crops, water planning, and field operations."
-        )
-
-    lines.append(
-        f"Production reliability is estimated at {fmt_num(operational.get('production_reliability_score'),1,'%')} and funding readiness is rated {operational.get('funding_readiness','Unknown')}, helping translate environmental conditions into a business and finance conversation for Panuka and the SMEs it supports."
-    )
-    return lines
-
-
 def build_overview_content(preset, category, metrics, risk):
     findings = []
     ndvi_current = metrics.get("ndvi_current")
@@ -469,11 +320,14 @@ def build_overview_content(preset, category, metrics, risk):
         findings.append("The site shows a mix of environmental signals that should be monitored over time rather than interpreted from a single indicator.")
 
     narrative = (
-        "This overview gives a plain-language summary of the Panuka pilot site, highlighting the most important nature-related signals for agribusiness screening and decision support. It now also translates those signals into operational meaning for irrigation, greenhouse conditions, open-field farming, and SME finance readiness."
+        "This overview gives a plain-language summary of the Panuka pilot site, highlighting the most important nature-related signals "
+        "for agribusiness screening and decision support. It is designed to help users quickly understand what the site depends on, "
+        "what may be changing, and where further attention may be needed."
     )
 
     business_relevance = (
-        "For Panuka, these results matter because water reliability, vegetation condition, greenhouse stress, and rainfall variability can affect farm resilience, training and incubation support, production planning, small-farmer support, and the way environmental performance is communicated to partners or funders."
+        "For Panuka, these results matter because water reliability, vegetation condition, and rainfall variability can affect farm resilience, "
+        "training and incubation support, production planning, and the way environmental performance is communicated to partners or funders."
     )
 
     return {
@@ -483,12 +337,22 @@ def build_overview_content(preset, category, metrics, risk):
     }
 
 
-def build_evaluate_content(category, metrics, operational):
+
+
+def build_evaluate_content(category, metrics):
+    greenhouse_pct = metrics.get("greenhouse_pct")
+    try:
+        greenhouse_pct_f = float(greenhouse_pct) if greenhouse_pct is not None else 0.0
+    except Exception:
+        greenhouse_pct_f = 0.0
+
     dependencies = [
-        "The farm depends on reliable water availability for irrigation, boreholes, crop growth, and day-to-day farm operations.",
-        "Vegetation condition and tree cover matter because they help with soil protection, microclimate stability, pollinators, and ecological resilience.",
-        "Rainfall patterns, heat conditions, and seasonal variability matter because they influence crop stress, pest pressure, and farming uncertainty.",
+        "The farm depends on reliable water availability for irrigation, crop growth, boreholes, and day-to-day farm operations.",
+        "Vegetation condition and tree cover matter because they help with soil protection, microclimate stability, pollinator support, and ecological resilience.",
+        "Rainfall patterns and heat conditions matter because they influence crop stress, pest pressure, irrigation demand, and farming uncertainty.",
     ]
+    if greenhouse_pct_f > 0.5:
+        dependencies.append("Protected farming areas depend on temperature control, ventilation, water reliability, and stable operating conditions inside and around greenhouse structures.")
 
     impacts = []
     try:
@@ -501,42 +365,158 @@ def build_evaluate_content(category, metrics, operational):
 
     try:
         if metrics.get("forest_loss_pct") is not None and float(metrics.get("forest_loss_pct")) > 5:
-            impacts.append("Forest loss is visible in the broader landscape, which may signal habitat pressure or land-use change that matters for long-term farm resilience.")
+            impacts.append("Forest loss is visible in the broader landscape, which may signal habitat pressure or land-use change that could affect long-term resilience.")
         else:
             impacts.append("Forest-loss pressure does not appear to be a dominant signal within the current assessment area.")
     except Exception:
         pass
 
-    if operational.get("greenhouse_detected"):
-        impacts.append("Satellite screening suggests protected farming structures are present, so greenhouse operations should be interpreted separately from the open-field part of the farm.")
-    else:
-        impacts.append("The site appears to be dominated more by open-field context than by clearly detectable greenhouse structures.")
+    try:
+        if metrics.get("water_occ") is not None and float(metrics.get("water_occ")) < 5:
+            impacts.append("Visible surface water is limited, which may increase dependence on groundwater, storage, or external supply.")
+    except Exception:
+        pass
 
-    signals = build_panuka_story(metrics, {}, operational)
+    signals = []
+    try:
+        ndvi = metrics.get("ndvi_current")
+        if ndvi is not None:
+            ndvi = float(ndvi)
+            if ndvi < 0.25:
+                signals.append("Current vegetation condition is low, which may point to stressed or sparse vegetation.")
+            elif ndvi < 0.45:
+                signals.append("Current vegetation condition is moderate, suggesting mixed vegetation performance across the site.")
+            else:
+                signals.append("Current vegetation condition is relatively strong, suggesting healthier vegetation cover in the assessed area.")
+    except Exception:
+        pass
+
+    try:
+        rain = metrics.get("rain_anom_pct")
+        if rain is not None:
+            rain = float(rain)
+            if rain < -10:
+                signals.append("Recent rainfall is below the long-term baseline, which may increase water uncertainty and climate stress.")
+            elif rain > 10:
+                signals.append("Recent rainfall is above the long-term baseline, which may improve water availability but can also shift pest, runoff, or flood conditions.")
+            else:
+                signals.append("Recent rainfall is broadly close to the long-term baseline, so rainfall alone does not suggest a major change signal.")
+    except Exception:
+        pass
+
+    try:
+        lst = metrics.get("lst_mean")
+        if lst is not None:
+            lst = float(lst)
+            if lst > 30:
+                signals.append("Heat conditions are elevated, which may increase crop stress, water demand, or site cooling needs.")
+            else:
+                signals.append("Heat conditions are present but not unusually elevated in the current screening output.")
+    except Exception:
+        pass
+
+    # Greenhouse and farm-operation proxies.
+    greenhouse_detected = greenhouse_pct_f > 0.5
+    water_reliability = "Moderate"
+    try:
+        rain = metrics.get("rain_anom_pct")
+        trend = metrics.get("ndvi_trend")
+        if (rain is not None and float(rain) < -10) or (trend is not None and float(trend) < -0.03):
+            water_reliability = "Low"
+        elif rain is not None and float(rain) > 5:
+            water_reliability = "High"
+    except Exception:
+        pass
+
+    soil_stress = "Moderate"
+    try:
+        ndvi = metrics.get("ndvi_current")
+        trend = metrics.get("ndvi_trend")
+        if (ndvi is not None and float(ndvi) < 0.25) or (trend is not None and float(trend) < -0.03):
+            soil_stress = "High"
+        elif ndvi is not None and float(ndvi) > 0.45:
+            soil_stress = "Low"
+    except Exception:
+        pass
+
+    greenhouse_heat = exposure_level(metrics.get("lst_mean"), False, 29, 31)
+    greenhouse_humidity = "Moderate"
+    irrigation_demand = "Moderate"
+    pest_risk = "Moderate"
+    production_reliability = "Moderate"
+    funding_readiness = "Moderate"
+    try:
+        rain = metrics.get("rain_anom_pct")
+        ndvi = metrics.get("ndvi_current")
+        lst = metrics.get("lst_mean")
+        water_occ = metrics.get("water_occ")
+        if rain is not None and float(rain) < -10:
+            irrigation_demand = "High"
+            greenhouse_humidity = "Low"
+        elif rain is not None and float(rain) > 10:
+            greenhouse_humidity = "High"
+            irrigation_demand = "Low"
+        if lst is not None and float(lst) > 30:
+            pest_risk = "High"
+        if ndvi is not None and float(ndvi) > 0.45 and irrigation_demand != "High":
+            production_reliability = "High"
+        if ndvi is not None and float(ndvi) < 0.25:
+            production_reliability = "Low"
+        if water_occ is not None and float(water_occ) < 5 and irrigation_demand == "High":
+            funding_readiness = "Low"
+        elif production_reliability == "High":
+            funding_readiness = "High"
+    except Exception:
+        pass
+
+    water_exposure = exposure_level(metrics.get("water_occ"), True, 5, 15)
+    heat_exposure = exposure_level(metrics.get("lst_mean"), False, 28, 30)
+
+    vegetation_exposure = "Unknown"
+    try:
+        ndvi = metrics.get("ndvi_current")
+        trend = metrics.get("ndvi_trend")
+        vegetation_exposure = "Low"
+        if (ndvi is not None and float(ndvi) < 0.25) or (trend is not None and float(trend) < -0.03):
+            vegetation_exposure = "High"
+        elif (ndvi is not None and float(ndvi) < 0.45) or (trend is not None and float(trend) < -0.01):
+            vegetation_exposure = "Moderate"
+    except Exception:
+        pass
+
+    greenhouse_text = (
+        "Satellite screening suggests protected farming structures may be present in part of the assessment area. Greenhouse-specific heat, humidity, pest, and irrigation signals should therefore be read alongside the open-field indicators."
+        if greenhouse_detected else
+        "Satellite screening does not show a strong greenhouse signal in the selected area, so the current outputs should mainly be read as open-field and surrounding-landscape screening."
+    )
 
     return {
-        "narrative": "This section reviews the site's environmental condition, historical change, likely greenhouse and open-field context, and the main ways the business may depend on nature or place pressure on it. The aim is to turn the indicators into practical agribusiness meaning.",
+        "narrative": "This section reviews the site's current environmental condition, historical change, and the main ways the business may depend on nature or place pressure on it. The aim is to translate the indicators into practical business meaning.",
         "dependencies": dependencies,
         "impacts": impacts,
         "signals": signals,
         "exposure_cards": [
-            {"label": "Water reliability", "value": operational.get("water_reliability_label", "Unknown"), "subtext": f"Score: {fmt_num(operational.get('water_reliability_score'),1)}/100"},
-            {"label": "Heat stress", "value": operational.get("greenhouse_heat_stress", "Unknown"), "subtext": "Greenhouse/open-field heat proxy"},
-            {"label": "Soil stress", "value": operational.get("soil_stress_risk", "Unknown"), "subtext": "Vegetation-based soil stress proxy"},
+            {"label": "Water exposure", "value": water_exposure, "subtext": "Based on visible surface-water context"},
+            {"label": "Heat exposure", "value": heat_exposure, "subtext": "Based on recent land surface temperature"},
+            {"label": "Vegetation exposure", "value": vegetation_exposure, "subtext": "Based on current vegetation and trend"},
         ],
+        "greenhouse_detected": "Yes" if greenhouse_detected else "No",
+        "greenhouse_text": greenhouse_text,
         "greenhouse_cards": [
-            {"label": "Greenhouse detected", "value": "Yes" if operational.get("greenhouse_detected") else "No", "subtext": "Satellite screening only"},
-            {"label": "Humidity risk", "value": operational.get("greenhouse_humidity_risk", "Unknown"), "subtext": "Greenhouse disease/ventilation proxy"},
-            {"label": "Pest risk", "value": operational.get("greenhouse_pest_risk", "Unknown"), "subtext": "Temperature + humidity + vegetation proxy"},
-            {"label": "Irrigation demand", "value": operational.get("irrigation_demand", "Unknown"), "subtext": "Likely water-demand pressure"},
+            {"label": "Greenhouse share", "value": fmt_num(metrics.get('greenhouse_pct'), 1, '%'), "subtext": "Satellite screening proxy"},
+            {"label": "Greenhouse heat", "value": greenhouse_heat, "subtext": "Useful for ventilation and cooling planning"},
+            {"label": "Humidity risk", "value": greenhouse_humidity, "subtext": "Screening proxy from climate context"},
+            {"label": "Pest risk", "value": pest_risk, "subtext": "Screening proxy from heat and vegetation"},
         ],
-        "business_cards": [
-            {"label": "Production reliability", "value": fmt_num(operational.get("production_reliability_score"),1,"%"), "subtext": "Environmental stability proxy"},
-            {"label": "Funding readiness", "value": operational.get("funding_readiness", "Unknown"), "subtext": "For bankability discussion"},
+        "operations_cards": [
+            {"label": "Water reliability", "value": water_reliability, "subtext": "Useful for irrigation planning"},
+            {"label": "Soil stress", "value": soil_stress, "subtext": "Proxy from vegetation and rainfall"},
+            {"label": "Irrigation demand", "value": irrigation_demand, "subtext": "Higher demand means more water planning"},
+            {"label": "Production reliability", "value": production_reliability, "subtext": "Simple screening of environmental stability"},
+            {"label": "Funding readiness", "value": funding_readiness, "subtext": "Environmental stability can support bankability conversations"},
         ],
-        "why_it_matters": "For Panuka, these signals matter because they link environmental conditions to operational decisions, greenhouse management, irrigation planning, pest monitoring, and the bankability of the SMEs the platform supports. The outputs are intended for screening and prioritisation, not as a replacement for field checks or greenhouse sensors.",
+        "why_it_matters": "For Panuka, these signals matter because water reliability, vegetation condition, greenhouse heat, pest pressure, and irrigation demand can affect production, SME support, soil protection, and financial resilience.",
     }
-
 
 def df_chart_to_png_bytes(df, x_col, y_col, title, kind="line", x_label="Year", y_label="Value"):
     if df is None or df.empty:
@@ -815,19 +795,11 @@ if run:
             hist_end=int(hist_end),
             last_full_year=LAST_FULL_YEAR,
         )
-        greenhouse = greenhouse_detection_stats(ee_geom, LAST_FULL_YEAR)
-        operational = derive_panuka_operational_metrics(metrics, greenhouse)
         risk = build_risk_and_recommendations(
             preset=preset,
             category=category,
             metrics=metrics,
         )
-        if operational.get("greenhouse_detected"):
-            risk["recs"] = [
-                "Treat greenhouse blocks and open-field blocks as separate management zones when planning water, pest control, and heat mitigation.",
-                "Use satellite greenhouse detection as a screening layer, then validate with on-site greenhouse maps and operating records.",
-            ] + risk["recs"]
-        risk["recs"] = risk["recs"][:10]
 
         satellite_img = satellite_with_polygon(ee_geom, LAST_FULL_YEAR)
         ndvi_img = ndvi_with_polygon(ee_geom, LAST_FULL_YEAR)
@@ -946,7 +918,7 @@ if run:
 
         st.session_state["report_payload"] = {
             "pdf_bytes": pdf_bytes,
-            "file_name": f"EagleNatureInsight_Report_{date.today().isoformat()}.pdf",
+            "file_name": f"Panuka_EagleNatureInsight_Report_{date.today().isoformat()}.pdf",
         }
 
         st.session_state["results_payload"] = {
@@ -967,8 +939,6 @@ if run:
             "lc_df": lc_df,
             "hist_start": int(hist_start),
             "hist_end": int(hist_end),
-            "greenhouse": greenhouse,
-            "operational": operational,
         }
 
     st.success("Assessment complete.")
@@ -1002,11 +972,9 @@ if results is not None:
     lc_df = results["lc_df"]
     hist_start = results.get("hist_start")
     hist_end = results.get("hist_end")
-    greenhouse = results.get("greenhouse", {})
-    operational = results.get("operational", {})
 
     overview = build_overview_content(preset, category, metrics, risk)
-    evaluate = build_evaluate_content(category, metrics, operational)
+    evaluate = build_evaluate_content(category, metrics)
 
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
         ["Overview", "Locate", "Evaluate", "Assess", "Prepare", "Images", "Trends", "Detailed Results"]
@@ -1037,18 +1005,6 @@ if results is not None:
         st.markdown("### Top findings")
         for finding in overview["findings"]:
             st.write(f"• {finding}")
-
-        g1, g2, g3 = st.columns(3)
-        with g1:
-            metric_card("Greenhouse detected", "Yes" if operational.get("greenhouse_detected") else "No", "Satellite screening")
-        with g2:
-            metric_card("Greenhouse area", fmt_num(operational.get("greenhouse_area_ha"), 1, " ha"), "Likely protected farming")
-        with g3:
-            metric_card("Production reliability", fmt_num(operational.get("production_reliability_score"), 1, "%"), operational.get("funding_readiness", ""))
-
-        st.markdown("### Operational story")
-        for line in build_panuka_story(metrics, greenhouse, operational):
-            st.write(f"• {line}")
 
         st.markdown("### Why this matters to the business")
         st.write(overview["business_relevance"])
@@ -1112,15 +1068,17 @@ if results is not None:
             with col:
                 metric_card(card["label"], card["value"], card["subtext"])
 
-        st.markdown("### Greenhouse conditions")
+        st.markdown("### Greenhouse and protected farming screening")
+        st.write(f"**Greenhouse detected:** {evaluate['greenhouse_detected']}")
+        st.write(evaluate["greenhouse_text"])
         g1, g2, g3, g4 = st.columns(4)
         for col, card in zip([g1, g2, g3, g4], evaluate["greenhouse_cards"]):
             with col:
                 metric_card(card["label"], card["value"], card["subtext"])
 
-        st.markdown("### Business impact")
-        b1, b2 = st.columns(2)
-        for col, card in zip([b1, b2], evaluate["business_cards"]):
+        st.markdown("### Farm operations and business impact")
+        o1, o2, o3, o4, o5 = st.columns(5)
+        for col, card in zip([o1, o2, o3, o4, o5], evaluate["operations_cards"]):
             with col:
                 metric_card(card["label"], card["value"], card["subtext"])
 
@@ -1143,11 +1101,12 @@ if results is not None:
         st.write("The dashboard provides category-specific next actions based on the current signals and business context.")
         for rec in risk["recs"]:
             st.write(f"• {rec}")
-
         st.markdown("### Suggested use frequency")
-        st.write("• Seasonal review before major planting or production cycles")
-        st.write("• Additional checks after rainfall shocks, heat spikes, or visible pest events")
-        st.write("• Annual baseline report for partner, lender, or investor discussions")
+        st.write("• **Seasonally:** before planting, at mid-season, and before harvest for farm decisions.")
+        st.write("• **After major weather events:** to screen flood, heat, or vegetation impacts.")
+        st.write("• **Annually:** for portfolio review, reporting, and finance-readiness conversations with partners or funders.")
+        st.markdown("### TNFD and SME fit")
+        st.write("This pilot keeps TNFD LEAP visible while translating the outputs into simple language for SMEs, incubation support, and farm decision-making.")
 
     with tab6:
         st.markdown("## Image outputs")
@@ -1203,17 +1162,6 @@ if results is not None:
                     "Forest loss (ha)",
                     "Forest loss (%)",
                     "Biome context proxy",
-                    "Greenhouse detected",
-                    "Greenhouse area (ha)",
-                    "Greenhouse share (%)",
-                    "Water reliability score",
-                    "Heat stress",
-                    "Humidity risk",
-                    "Pest risk",
-                    "Soil stress risk",
-                    "Irrigation demand",
-                    "Production reliability (%)",
-                    "Funding readiness",
                 ],
                 "Value": [
                     preset,
@@ -1229,17 +1177,6 @@ if results is not None:
                     metrics.get("forest_loss_ha"),
                     metrics.get("forest_loss_pct"),
                     metrics.get("bio_proxy"),
-                    "Yes" if operational.get("greenhouse_detected") else "No",
-                    operational.get("greenhouse_area_ha"),
-                    operational.get("greenhouse_pct"),
-                    operational.get("water_reliability_score"),
-                    operational.get("greenhouse_heat_stress"),
-                    operational.get("greenhouse_humidity_risk"),
-                    operational.get("greenhouse_pest_risk"),
-                    operational.get("soil_stress_risk"),
-                    operational.get("irrigation_demand"),
-                    operational.get("production_reliability_score"),
-                    operational.get("funding_readiness"),
                 ],
             }
         )
