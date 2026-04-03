@@ -5,7 +5,7 @@ import math
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
@@ -59,7 +59,6 @@ def _styles():
     styles.add(ParagraphStyle(name="SmallBrand", parent=styles["Heading3"], fontName="Helvetica-Bold", fontSize=11, leading=14, textColor=BRAND["text"], spaceBefore=6, spaceAfter=4))
     styles.add(ParagraphStyle(name="BodyBrand", parent=styles["BodyText"], fontName="Helvetica", fontSize=9.5, leading=13, textColor=BRAND["text"], spaceAfter=6, alignment=TA_LEFT))
     styles.add(ParagraphStyle(name="MutedBrand", parent=styles["BodyText"], fontName="Helvetica", fontSize=8.5, leading=12, textColor=BRAND["subtext"], spaceAfter=5))
-    styles.add(ParagraphStyle(name="CenterMuted", parent=styles["BodyText"], fontName="Helvetica", fontSize=8.5, leading=12, textColor=BRAND["subtext"], alignment=TA_CENTER, spaceAfter=5))
     return styles
 
 _STYLES = _styles()
@@ -88,6 +87,16 @@ def _fit_image(source: Any, max_width: float, max_height: float) -> Optional[Ima
         return img
     except Exception:
         return None
+
+def _normalize_image_input(img: Any) -> Optional[io.BytesIO]:
+    if img is None:
+        return None
+    if isinstance(img, io.BytesIO):
+        img.seek(0)
+        return img
+    if isinstance(img, (bytes, bytearray)):
+        return io.BytesIO(img)
+    return None
 
 def _metric_table(items: List[Tuple[str, str]], col_widths: Tuple[float, float]) -> Table:
     data = [[Paragraph(f"<b>{k}</b>", _STYLES["BodyBrand"]), Paragraph(v, _STYLES["BodyBrand"])] for k, v in items]
@@ -193,11 +202,11 @@ def _derive_findings(metrics: Dict[str, Any], risk: Dict[str, Any]) -> List[str]
         ]
     return findings[:3]
 
-def _image_block(story: List[Any], title: str, description: str, img_bytes: Optional[bytes]) -> None:
+def _image_block(story: List[Any], title: str, description: str, img_data: Any) -> None:
     story.append(Paragraph(title, _STYLES["SmallBrand"]))
     story.append(Paragraph(description, _STYLES["MutedBrand"]))
-    if img_bytes:
-        bio = io.BytesIO(img_bytes)
+    bio = _normalize_image_input(img_data)
+    if bio:
         img = _fit_image(bio, 17.5 * cm, 10.0 * cm)
         if img:
             story.append(img)
@@ -206,11 +215,11 @@ def _image_block(story: List[Any], title: str, description: str, img_bytes: Opti
     story.append(Paragraph("Image not available in this export.", _STYLES["MutedBrand"]))
     story.append(Spacer(1, 0.15 * cm))
 
-def _chart_block(story: List[Any], title: str, description: str, chart_bytes: Optional[bytes]) -> None:
+def _chart_block(story: List[Any], title: str, description: str, chart_data: Any) -> None:
     story.append(Paragraph(title, _STYLES["SmallBrand"]))
     story.append(Paragraph(description, _STYLES["MutedBrand"]))
-    if chart_bytes:
-        bio = io.BytesIO(chart_bytes)
+    bio = _normalize_image_input(chart_data)
+    if bio:
         img = _fit_image(bio, 17.5 * cm, 8.8 * cm)
         if img:
             story.append(img)
@@ -285,7 +294,7 @@ def build_pdf_report(
     _section_rule(story)
 
     story.append(Paragraph("4. Overview metrics", _STYLES["SectionBrand"]))
-    overview_rows = [
+    story.append(_metric_table([
         ("Panuka pilot site", _safe_text(preset)),
         ("Pilot category", _safe_text(category)),
         ("Assessment area", fmt_num(metrics.get("area_ha"), 2, " ha")),
@@ -298,8 +307,7 @@ def build_pdf_report(
         ("Built-up area", fmt_num(metrics.get("built_pct"), 1, "%")),
         ("Surface-water occurrence", fmt_num(metrics.get("water_occ"), 1)),
         ("Forest loss", fmt_num(metrics.get("forest_loss_pct"), 1, "%")),
-    ]
-    story.append(_metric_table(overview_rows, (7.2 * cm, 9.8 * cm)))
+    ], (7.2 * cm, 9.8 * cm)))
     _section_rule(story)
 
     story.append(Paragraph("5. LEAP summary", _STYLES["SectionBrand"]))
@@ -331,11 +339,12 @@ def build_pdf_report(
         "Evaluate reviews how the farm depends on nature, what pressures may be visible, what greenhouse conditions may matter, and what the indicators suggest for practical farm management.",
         _STYLES["BodyBrand"],
     ))
-    deps = [
+    story.append(Paragraph("Dependencies on nature", _STYLES["SmallBrand"]))
+    _add_bullets(story, [
         "The business depends on reliable water availability for irrigation, crop growth, and day-to-day farm operations.",
         "Vegetation condition and tree cover matter because they help with soil protection, microclimate stability, and ecological resilience.",
         "Rainfall patterns and heat conditions matter because they influence crop stress, pest pressure, and farming uncertainty.",
-    ]
+    ])
     impacts = []
     try:
         if metrics.get("ndvi_trend") is not None and float(metrics["ndvi_trend"]) < -0.03:
@@ -356,13 +365,10 @@ def build_pdf_report(
             impacts.append("Visible surface water is limited, which may increase dependence on groundwater, storage, or external supply.")
     except Exception:
         pass
-    signals = _derive_findings(metrics, risk)
-    story.append(Paragraph("Dependencies on nature", _STYLES["SmallBrand"]))
-    _add_bullets(story, deps)
     story.append(Paragraph("Possible impacts and pressures", _STYLES["SmallBrand"]))
     _add_bullets(story, impacts)
     story.append(Paragraph("What the indicators are suggesting", _STYLES["SmallBrand"]))
-    _add_bullets(story, signals)
+    _add_bullets(story, _derive_findings(metrics, risk))
     story.append(Paragraph("Exposure summary", _STYLES["SmallBrand"]))
     story.append(_metric_table([
         ("Water exposure", f'{_water_exposure(metrics)} — Based on visible surface-water context'),
@@ -438,10 +444,8 @@ def build_pdf_report(
         "Each image below is paired with a short explanation so that non-technical readers can understand what it shows and why it matters.",
         _STYLES["BodyBrand"],
     ))
-    image_payloads = image_payloads or []
-    for payload in image_payloads:
+    for payload in (image_payloads or []):
         _image_block(story, _safe_text(payload.get("title")), _safe_text(payload.get("description")), payload.get("bytes"))
-
     story.append(PageBreak())
 
     story.append(Paragraph("13. Historical plots and current charts", _STYLES["SectionBrand"]))
@@ -449,11 +453,10 @@ def build_pdf_report(
         "The plots below help explain trends over time. Each one is described in plain language so the reader can understand what changes may matter for farm decisions.",
         _STYLES["BodyBrand"],
     ))
-    chart_payloads = chart_payloads or []
-    for payload in chart_payloads:
+    for payload in (chart_payloads or []):
         _chart_block(story, _safe_text(payload.get("title")), _safe_text(payload.get("description")), payload.get("bytes"))
-
     _section_rule(story)
+
     story.append(Paragraph("14. TNFD meeting points addressed by this report", _STYLES["SectionBrand"]))
     _add_bullets(story, [
         "Less jargon: the report uses plain-language interpretations and defines abbreviations.",
