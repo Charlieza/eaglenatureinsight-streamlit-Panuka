@@ -415,6 +415,42 @@ def safe_number(value, default=0):
 
 
 
+
+def landcover_feature_collection(geom: ee.Geometry) -> ee.FeatureCollection:
+    ds = get_datasets()
+    classes = [10, 20, 30, 40, 50, 60, 80, 90, 95, 100]
+    class_names = {
+        10: "Tree cover",
+        20: "Shrubland",
+        30: "Grassland",
+        40: "Cropland",
+        50: "Built-up",
+        60: "Bare/sparse vegetation",
+        80: "Permanent water",
+        90: "Herbaceous wetland",
+        95: "Mangroves",
+        100: "Moss & lichen",
+    }
+
+    area_image = ee.Image.pixelArea().divide(10000)
+    features = []
+    for cls in classes:
+        area = area_image.updateMask(ds["WORLDCOVER"].eq(cls)).reduceRegion(
+            reducer=ee.Reducer.sum(),
+            geometry=geom,
+            scale=10,
+            maxPixels=1e13,
+        ).get("area")
+        features.append(
+            ee.Feature(None, {
+                "class_value": cls,
+                "class_name": class_names[cls],
+                "area_ha": ee.Algorithms.If(ee.Algorithms.IsEqual(area, None), 0, area),
+            })
+        )
+
+    return ee.FeatureCollection(features)
+
 def landcover_pct(geom: ee.Geometry, cls: int):
     ds = get_datasets()
     total_area_raw = ee.Image.pixelArea().reduceRegion(
