@@ -35,8 +35,8 @@ from utils.pdf_report import build_pdf_report
 
 st.set_page_config(page_title="EagleNatureInsight", layout="wide")
 
-APP_TITLE = "EagleNatureInsight"
-APP_SUBTITLE = "Nature Intelligence Dashboard for SMEs"
+APP_TITLE = "EagleNatureInsight | Panuka Pilot"
+APP_SUBTITLE = "TNFD LEAP agribusiness dashboard for Panuka AgriBiz Hub"
 APP_TAGLINE = "Locate • Evaluate • Assess • Prepare"
 
 CURRENT_YEAR = date.today().year
@@ -45,42 +45,36 @@ LAST_FULL_YEAR = CURRENT_YEAR - 1
 LOGO_PATH = Path("assets/logo.png")
 
 PRESET_TO_CATEGORY = {
-    "Panuka AgriBiz Hub": "Agriculture / Agribusiness",
-    "BL Turner Group": "Water / Circular economy",
+    "Panuka Site 1": "Agriculture / Agribusiness",
+    "Panuka Site 2": "Agriculture / Agribusiness",
 }
 
 PRESET_TO_LOCATION = {
-    "Panuka AgriBiz Hub": {"lat": -15.3875, "lon": 28.3228, "buffer_m": 1500, "zoom": 12},
-    "BL Turner Group": {"lat": -29.9167, "lon": 31.0218, "buffer_m": 1000, "zoom": 13},
+    "Panuka Site 1": {"lat": -15.251194, "lon": 28.144500, "buffer_m": 1200, "zoom": 15},
+    "Panuka Site 2": {"lat": -15.251472, "lon": 28.147417, "buffer_m": 1200, "zoom": 15},
 }
 
 PRESETS = [
-    "Select Business / Area",
-    "Panuka AgriBiz Hub",
-    "BL Turner Group",
+    "Select Panuka Site",
+    "Panuka Site 1",
+    "Panuka Site 2",
 ]
 
 CATEGORIES = [
     "Agriculture / Agribusiness",
-    "Food processing / Supply chain",
-    "Manufacturing / Industrial",
-    "Water / Circular economy",
-    "Energy / Infrastructure",
-    "Property / Built environment",
-    "General SME",
 ]
 
 
 def init_state():
     defaults = {
-        "preset_selector": "Select Business / Area",
-        "active_preset": "Select Business / Area",
-        "category_selector": "General SME",
+        "preset_selector": "Select Panuka Site",
+        "active_preset": "Select Panuka Site",
+        "category_selector": "Agriculture / Agribusiness",
         "lat_input": "",
         "lon_input": "",
         "buffer_input": 1000,
-        "map_center": [-25.0, 24.0],
-        "map_zoom": 5,
+        "map_center": [-15.251194, 28.144500],
+        "map_zoom": 15,
         "draw_mode": "Draw polygon",
         "last_drawn_geojson": None,
         "report_payload": None,
@@ -109,7 +103,7 @@ def apply_preset(preset: str):
 def preset_changed():
     preset = st.session_state["preset_selector"]
     st.session_state["active_preset"] = preset
-    if preset != "Select Business / Area":
+    if preset != "Select Panuka Site":
         apply_preset(preset)
 
 
@@ -119,7 +113,7 @@ def build_map(center, zoom, draw_mode, lat=None, lon=None, buffer_m=None, existi
         zoom_start=zoom,
         control_scale=True,
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri Satellite"
+        attr="Esri Satellite",
     )
 
     Draw(
@@ -142,7 +136,7 @@ def build_map(center, zoom, draw_mode, lat=None, lon=None, buffer_m=None, existi
                 "color": "#ff0000",
                 "weight": 3,
                 "fillOpacity": 0.05,
-            }
+            },
         ).add_to(m)
 
     if draw_mode == "Enter coordinates":
@@ -292,7 +286,7 @@ def build_landcover_bar(df):
         df.sort_values("area_ha", ascending=False),
         x="class_name",
         y="area_ha",
-        title="Current Land Cover Composition"
+        title="Current Land Cover Composition",
     )
     fig.update_layout(
         xaxis_title="Land-cover class",
@@ -303,7 +297,7 @@ def build_landcover_bar(df):
     return fig
 
 
-def fetch_image_bytes(url: str, timeout: int = 90):
+def fetch_image_bytes(url: str, timeout: int = 60):
     try:
         r = requests.get(url, timeout=timeout)
         r.raise_for_status()
@@ -314,12 +308,19 @@ def fetch_image_bytes(url: str, timeout: int = 90):
         return None
 
 
-def fetch_pdf_ee_image_bytes(image, geom, dimensions=900):
-    try:
-        url = image_thumb_url(image, geom, dimensions=dimensions)
-        return fetch_image_bytes(url, timeout=120)
-    except Exception:
-        return None
+def fetch_pdf_ee_image_bytes(image, geom, dimensions=900, retries=3):
+    attempt_dims = [dimensions, 700, 500]
+
+    for i in range(min(retries, len(attempt_dims))):
+        try:
+            url = image_thumb_url(image, geom, dimensions=attempt_dims[i])
+            result = fetch_image_bytes(url, timeout=150)
+            if result is not None:
+                return result
+        except Exception:
+            pass
+
+    return None
 
 
 init_state()
@@ -365,7 +366,7 @@ hero_left, hero_right = st.columns([1.2, 5])
 
 with hero_left:
     if LOGO_PATH.exists():
-        st.image(str(LOGO_PATH), width=220)
+        st.image(str(LOGO_PATH), width=500)
 
 with hero_right:
     st.markdown(
@@ -395,7 +396,7 @@ st.markdown("---")
 left_col, right_col = st.columns(2)
 with left_col:
     st.selectbox(
-        "Select business or assessment area",
+        "Select Panuka pilot site",
         PRESETS,
         key="preset_selector",
         on_change=preset_changed,
@@ -404,16 +405,16 @@ with left_col:
 with right_col:
     focus1, focus2 = st.columns(2)
     with focus1:
-        if st.button("Focus Panuka", use_container_width=True):
-            apply_preset("Panuka AgriBiz Hub")
+        if st.button("Focus Site 1", use_container_width=True):
+            apply_preset("Panuka Site 1")
             st.rerun()
     with focus2:
-        if st.button("Focus BL Turner", use_container_width=True):
-            apply_preset("BL Turner Group")
+        if st.button("Focus Site 2", use_container_width=True):
+            apply_preset("Panuka Site 2")
             st.rerun()
 
 st.selectbox(
-    "Business category",
+    "Pilot category",
     CATEGORIES,
     key="category_selector",
 )
@@ -517,34 +518,43 @@ if run:
             metrics=metrics,
         )
 
-        # Dashboard images
         satellite_img = satellite_with_polygon(ee_geom, LAST_FULL_YEAR)
         ndvi_img = ndvi_with_polygon(ee_geom, LAST_FULL_YEAR)
         landcover_img = landcover_with_polygon(ee_geom)
         forest_loss_img = forest_loss_with_polygon(ee_geom)
         veg_change_img = vegetation_change_with_polygon(ee_geom, int(hist_start), int(hist_end))
 
-        satellite_url = image_thumb_url(satellite_img, ee_geom, 1400)
+        satellite_url = image_thumb_url(satellite_img, ee_geom, 2200)
         ndvi_url = image_thumb_url(ndvi_img, ee_geom, 1400)
         landcover_url = image_thumb_url(landcover_img, ee_geom, 1400)
         forest_loss_url = image_thumb_url(forest_loss_img, ee_geom, 1400)
         veg_change_url = image_thumb_url(veg_change_img, ee_geom, 1400)
 
-        ndvi_hist_df = prep_year_df(fc_to_dataframe(
-            landsat_annual_ndvi_collection(ee_geom, max(int(hist_start), 1984), int(hist_end))
-        ))
-        rain_hist_df = prep_year_df(fc_to_dataframe(
-            annual_rain_collection(ee_geom, max(int(hist_start), 1981), int(hist_end))
-        ))
-        lst_hist_df = prep_year_df(fc_to_dataframe(
-            annual_lst_collection(ee_geom, max(int(hist_start), 2001), int(hist_end))
-        ))
-        forest_hist_df = prep_year_df(fc_to_dataframe(
-            forest_loss_by_year_collection(ee_geom, int(hist_start), int(hist_end))
-        ))
-        water_hist_df = prep_year_df(fc_to_dataframe(
-            water_history_collection(ee_geom, max(int(hist_start), 1984), int(hist_end))
-        ))
+        ndvi_hist_df = prep_year_df(
+            fc_to_dataframe(
+                landsat_annual_ndvi_collection(ee_geom, max(int(hist_start), 1984), int(hist_end))
+            )
+        )
+        rain_hist_df = prep_year_df(
+            fc_to_dataframe(
+                annual_rain_collection(ee_geom, max(int(hist_start), 1981), int(hist_end))
+            )
+        )
+        lst_hist_df = prep_year_df(
+            fc_to_dataframe(
+                annual_lst_collection(ee_geom, max(int(hist_start), 2001), int(hist_end))
+            )
+        )
+        forest_hist_df = prep_year_df(
+            fc_to_dataframe(
+                forest_loss_by_year_collection(ee_geom, int(hist_start), int(hist_end))
+            )
+        )
+        water_hist_df = prep_year_df(
+            fc_to_dataframe(
+                water_history_collection(ee_geom, max(int(hist_start), 1984), int(hist_end))
+            )
+        )
         lc_df = fc_to_dataframe(landcover_feature_collection(ee_geom))
         if not lc_df.empty and "area_ha" in lc_df.columns:
             lc_df["area_ha"] = pd.to_numeric(lc_df["area_ha"], errors="coerce")
@@ -584,17 +594,16 @@ if run:
             },
         ]
 
-        # PDF-specific lighter images
         image_payloads = [
             {
                 "title": "Satellite image with polygon",
                 "description": "This is a true-colour satellite view of the selected site. The red outline shows the assessment area.",
-                "bytes": fetch_pdf_ee_image_bytes(satellite_img, ee_geom, dimensions=850),
+                "bytes": fetch_pdf_ee_image_bytes(satellite_img, ee_geom, dimensions=700),
             },
             {
                 "title": "NDVI image with polygon",
                 "description": "This image shows vegetation condition. Greener areas generally mean healthier or denser vegetation. Redder areas generally mean weaker vegetation.",
-                "bytes": fetch_pdf_ee_image_bytes(ndvi_img, ee_geom, dimensions=850),
+                "bytes": fetch_pdf_ee_image_bytes(ndvi_img, ee_geom, dimensions=700),
             },
             {
                 "title": "Land-cover image with polygon",
@@ -604,7 +613,7 @@ if run:
             {
                 "title": "Vegetation change map with polygon",
                 "description": "This image compares earlier and more recent vegetation condition. Redder areas suggest decline. Greener areas suggest improvement.",
-                "bytes": fetch_pdf_ee_image_bytes(veg_change_img, ee_geom, dimensions=850),
+                "bytes": fetch_pdf_ee_image_bytes(veg_change_img, ee_geom, dimensions=500),
             },
             {
                 "title": "Forest loss map with polygon",
@@ -645,6 +654,8 @@ if run:
             "forest_hist_df": forest_hist_df,
             "water_hist_df": water_hist_df,
             "lc_df": lc_df,
+            "hist_start": int(hist_start),
+            "hist_end": int(hist_end),
         }
 
     st.success("Assessment complete.")
@@ -676,15 +687,21 @@ if results is not None:
     forest_hist_df = results["forest_hist_df"]
     water_hist_df = results["water_hist_df"]
     lc_df = results["lc_df"]
+    hist_start = results.get("hist_start")
+    hist_end = results.get("hist_end")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(
-        ["Overview", "LEAP", "Images", "Trends", "Detailed Results"]
+    overview = build_overview_content(preset, category, metrics, risk)
+    evaluate = build_evaluate_content(category, metrics)
+
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
+        ["Overview", "Locate", "Evaluate", "Assess", "Prepare", "Images", "Trends", "Detailed Results"]
     )
 
     with tab1:
-        st.markdown("## EagleNatureInsight Overview")
-        st.write(f"**Business preset:** {preset}")
-        st.write(f"**Business category:** {category}")
+        st.markdown("## Panuka Pilot Overview")
+        st.write(overview["narrative"])
+        st.write(f"**Panuka pilot site:** {preset}")
+        st.write(f"**Pilot category:** {category}")
 
         r1c1, r1c2, r1c3 = st.columns(3)
         with r1c1:
@@ -702,26 +719,77 @@ if results is not None:
         with r2c3:
             metric_card("Surface Water", fmt_num(metrics.get("water_occ"), 1), "Occurrence")
 
+        st.markdown("### Top findings")
+        for finding in overview["findings"]:
+            st.write(f"• {finding}")
+
+        st.markdown("### Why this matters to the business")
+        st.write(overview["business_relevance"])
+
     with tab2:
-        st.markdown("## LEAP outputs")
-
-        st.markdown("### Locate")
+        st.markdown("## Locate")
         st.write("The selected area has been defined and screened for land cover, visible nature context, and surrounding landscape conditions.")
-        st.write(f"Area of interest: {fmt_num(metrics.get('area_ha'), 1, ' ha')}")
-        st.write(f"Tree cover: {fmt_num(metrics.get('tree_pct'), 1, '%')}")
-        st.write(f"Cropland: {fmt_num(metrics.get('cropland_pct'), 1, '%')}")
-        st.write(f"Built-up: {fmt_num(metrics.get('built_pct'), 1, '%')}")
-        st.write(f"Surface water occurrence: {fmt_num(metrics.get('water_occ'), 1)}")
 
-        st.markdown("### Evaluate")
-        st.write("Current and historical environmental conditions have been reviewed using the dashboard indicators.")
-        st.write(f"Current NDVI: {fmt_num(metrics.get('ndvi_current'), 3)}")
-        st.write(f"Historical NDVI trend: {fmt_num(metrics.get('ndvi_trend'), 3)}")
-        st.write(f"Rainfall anomaly: {fmt_num(metrics.get('rain_anom_pct'), 1, '%')}")
-        st.write(f"Recent LST mean: {fmt_num(metrics.get('lst_mean'), 1, ' °C')}")
-        st.write(f"Forest loss % of baseline forest: {fmt_num(metrics.get('forest_loss_pct'), 1, '%')}")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            metric_card("Area analysed", fmt_num(metrics.get("area_ha"), 1, " ha"), "Assessment area")
+        with c2:
+            metric_card("Tree cover", fmt_num(metrics.get("tree_pct"), 1, "%"), "Landscape context")
+        with c3:
+            metric_card("Surface water", fmt_num(metrics.get("water_occ"), 1), "Occurrence")
 
-        st.markdown("### Assess")
+        st.write(f"**Cropland:** {fmt_num(metrics.get('cropland_pct'), 1, '%')}")
+        st.write(f"**Built-up land:** {fmt_num(metrics.get('built_pct'), 1, '%')}")
+
+        st.markdown("### Current land-cover composition")
+        if not lc_df.empty:
+            fig = build_landcover_bar(lc_df)
+            st.plotly_chart(fig, use_container_width=True, key="locate_landcover_bar")
+            st.caption("This chart shows how the selected area is currently divided across land-cover classes such as tree cover, cropland, built-up land, and water.")
+
+    with tab3:
+        st.markdown("## Evaluate")
+        st.write(evaluate["narrative"])
+
+        e1, e2, e3 = st.columns(3)
+        with e1:
+            metric_card("Current vegetation", fmt_num(metrics.get("ndvi_current"), 3), "NDVI")
+        with e2:
+            metric_card("Vegetation trend", fmt_num(metrics.get("ndvi_trend"), 3), "Historical change")
+        with e3:
+            metric_card("Rainfall context", fmt_num(metrics.get("rain_anom_pct"), 1, "%"), "vs 1981–2010")
+
+        e4, e5, e6 = st.columns(3)
+        with e4:
+            metric_card("Heat context", fmt_num(metrics.get("lst_mean"), 1, " °C"), "Recent LST mean")
+        with e5:
+            metric_card("Forest-loss context", fmt_num(metrics.get("forest_loss_pct"), 1, "%"), "% of baseline forest")
+        with e6:
+            metric_card("Water context", fmt_num(metrics.get("water_occ"), 1), "Surface water occurrence")
+
+        st.markdown("### Dependencies on nature")
+        for item in evaluate["dependencies"]:
+            st.write(f"• {item}")
+
+        st.markdown("### Possible impacts and pressures")
+        for item in evaluate["impacts"]:
+            st.write(f"• {item}")
+
+        st.markdown("### What the indicators are suggesting")
+        for item in evaluate["signals"]:
+            st.write(f"• {item}")
+
+        st.markdown("### Exposure summary")
+        x1, x2, x3 = st.columns(3)
+        for col, card in zip([x1, x2, x3], evaluate["exposure_cards"]):
+            with col:
+                metric_card(card["label"], card["value"], card["subtext"])
+
+        st.markdown("### Why this matters")
+        st.write(evaluate["why_it_matters"])
+
+    with tab4:
+        st.markdown("## Assess")
         st.write("The dashboard interprets the evidence into a business-facing nature risk signal and identifies the most relevant issues.")
         st.write(f"Nature risk score: {risk['score']} / 100")
         st.write(f"Risk band: {risk['band']}")
@@ -731,12 +799,13 @@ if results is not None:
         else:
             st.write("• No major automated flags triggered in the current rule set.")
 
-        st.markdown("### Prepare")
+    with tab5:
+        st.markdown("## Prepare")
         st.write("The dashboard provides category-specific next actions based on the current signals and business context.")
         for rec in risk["recs"]:
             st.write(f"• {rec}")
 
-    with tab3:
+    with tab6:
         st.markdown("## Image outputs")
         st.write("**NDVI image:** greener usually means stronger vegetation; redder usually means weaker vegetation.")
         st.write("**Vegetation change map:** green usually means improvement; red usually means decline.")
@@ -752,33 +821,33 @@ if results is not None:
             st.image(landcover_url, caption="Land-cover image with polygon", use_container_width=True)
             st.image(forest_loss_url, caption="Forest loss map with polygon", use_container_width=True)
 
-    with tab4:
+    with tab7:
         st.markdown("## Historical plots")
 
         if not ndvi_hist_df.empty:
             fig = px.line(ndvi_hist_df, x="year", y="value", title="Historical NDVI (Landsat)")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="trend_ndvi")
         if not rain_hist_df.empty:
             fig = px.line(rain_hist_df, x="year", y="value", title="Historical Rainfall (CHIRPS)")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="trend_rain")
         if not lst_hist_df.empty:
             fig = px.line(lst_hist_df, x="year", y="value", title="Historical Land Surface Temperature (MODIS)")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="trend_lst")
         if not forest_hist_df.empty:
             fig = px.bar(forest_hist_df, x="year", y="value", title="Historical Forest Loss by Year (Hansen)")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="trend_forest")
         if not water_hist_df.empty:
             fig = px.line(water_hist_df, x="year", y="value", title="Historical Water Presence (JRC)")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="trend_water")
 
-    with tab5:
+    with tab8:
         st.markdown("## Detailed results")
 
         detail_df = pd.DataFrame(
             {
                 "Metric": [
                     "Business preset",
-                    "Business category",
+                    "Pilot category",
                     "Selected range",
                     "Area (ha)",
                     "Current NDVI",
@@ -812,4 +881,4 @@ if results is not None:
 
         if not lc_df.empty:
             fig = build_landcover_bar(lc_df)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="detail_landcover_bar")
