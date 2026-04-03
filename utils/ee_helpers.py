@@ -29,6 +29,24 @@ def initialize_ee_from_secrets(st) -> None:
     initialize_ee_from_secrets._initialized = True
 
 
+
+
+def _to_number_or_none(value):
+    return ee.Algorithms.If(value, ee.Number(value), None)
+
+
+def _safe_divide_pct(numerator, denominator):
+    return ee.Algorithms.If(
+        ee.Algorithms.IsEqual(denominator, None),
+        None,
+        ee.Algorithms.If(
+            ee.Number(denominator).gt(0),
+            ee.Number(numerator).divide(ee.Number(denominator)).multiply(100),
+            None,
+        ),
+    )
+
+
 def get_datasets():
     s2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
     chirps = ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY")
@@ -123,7 +141,7 @@ def satellite_with_polygon(geom: ee.Geometry, last_full_year: int) -> ee.Image:
     rgb = current_sentinel_rgb(geom, last_full_year).visualize(
         bands=["B4", "B3", "B2"],
         min=0,
-        max=3000
+        max=2500
     )
     return add_polygon_overlay(rgb, geom)
 
@@ -397,25 +415,30 @@ def water_history_collection(geom: ee.Geometry, start_year: int, end_year: int) 
 
 def landcover_pct(geom: ee.Geometry, cls: int):
     ds = get_datasets()
-    total_area = ee.Number(
-        ee.Image.pixelArea().reduceRegion(
-            reducer=ee.Reducer.sum(),
-            geometry=geom,
-            scale=10,
-            maxPixels=1e13
-        ).get("area")
-    )
+    total_area = ee.Image.pixelArea().reduceRegion(
+        reducer=ee.Reducer.sum(),
+        geometry=geom,
+        scale=10,
+        maxPixels=1e13
+    ).get("area")
 
-    class_area = ee.Number(
-        ee.Image.pixelArea().updateMask(ds["WORLDCOVER"].eq(cls)).reduceRegion(
-            reducer=ee.Reducer.sum(),
-            geometry=geom,
-            scale=10,
-            maxPixels=1e13
-        ).get("area")
-    )
+    class_area = ee.Image.pixelArea().updateMask(ds["WORLDCOVER"].eq(cls)).reduceRegion(
+        reducer=ee.Reducer.sum(),
+        geometry=geom,
+        scale=10,
+        maxPixels=1e13
+    ).get("area")
 
-    return class_area.divide(total_area).multiply(100)
+    return ee.Algorithms.If(
+        ee.Algorithms.IsEqual(total_area, None),
+        0,
+        ee.Algorithms.If(
+            ee.Number(total_area).gt(0),
+            ee.Number(ee.Algorithms.If(ee.Algorithms.IsEqual(class_area, None), 0, class_area))
+            .divide(ee.Number(total_area)).multiply(100),
+            0
+        )
+    )
 
 
 def landcover_feature_collection(geom: ee.Geometry) -> ee.FeatureCollection:
@@ -476,8 +499,14 @@ def forest_loss_summary(geom: ee.Geometry):
         maxPixels=1e13
     ).get("area")
 
-    loss_pct = ee.Number(loss_ha).divide(ee.Number(forest_ha)).multiply(100)
-    return {"forest_ha": forest_ha, "loss_ha": loss_ha, "loss_pct": loss_pct}
+    safe_forest_ha = ee.Algorithms.If(ee.Algorithms.IsEqual(forest_ha, None), 0, forest_ha)
+    safe_loss_ha = ee.Algorithms.If(ee.Algorithms.IsEqual(loss_ha, None), 0, loss_ha)
+    loss_pct = ee.Algorithms.If(
+        ee.Number(safe_forest_ha).gt(0),
+        ee.Number(safe_loss_ha).divide(ee.Number(safe_forest_ha)).multiply(100),
+        0
+    )
+    return {"forest_ha": safe_forest_ha, "loss_ha": safe_loss_ha, "loss_pct": loss_pct}
 
 
 def surface_water_occurrence_mean(geom: ee.Geometry):
@@ -515,21 +544,35 @@ def series_recent_vs_early_delta(fc: ee.FeatureCollection):
 def rainfall_anomaly_pct_from_range(geom: ee.Geometry, hist_start: int, hist_end: int):
     baseline = annual_rain_collection(geom, 1981, 2010)
     recent = annual_rain_collection(geom, max(hist_end - 2, hist_start), hist_end)
-    baseline_mean = ee.Number(baseline.aggregate_mean("value"))
-    recent_mean = ee.Number(recent.aggregate_mean("value"))
-    return recent_mean.subtract(baseline_mean).divide(baseline_mean).multiply(100)
+    baseline_mean = baseline.aggregate_mean("value")
+    recent_mean = recent.aggregate_mean("value")
+    return ee.Algorithms.If(
+        ee.Algorithms.IsEqual(baseline_mean, None),
+        None,
+        ee.Algorithms.If(
+            ee.Algorithms.IsEqual(recent_mean, None),
+            None,
+            ee.Algorithms.If(
+                ee.Number(baseline_mean).neq(0),
+                ee.Number(recent_mean).subtract(ee.Number(baseline_mean)).divide(ee.Number(baseline_mean)).multiply(100),
+                None
+            )
+        )
+    )
 
 
 def lst_recent_mean_from_range(geom: ee.Geometry, hist_start: int, hist_end: int):
     s = max(hist_end - 2, max(hist_start, 2001))
     fc = annual_lst_collection(geom, s, hist_end)
-    return ee.Number(fc.aggregate_mean("value"))
+    mean_val = fc.aggregate_mean("value")
+    return ee.Algorithms.If(ee.Algorithms.IsEqual(mean_val, None), None, ee.Number(mean_val))
 
 
 def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full_year: int):
     _, ndvi_mean = current_ndvi_image_and_mean(geom, last_full_year)
     ndvi_hist = landsat_annual_ndvi_collection(geom, max(hist_start, 1984), hist_end)
     forest_summary = forest_loss_summary(geom)
+    greenhouse = greenhouse_detection_stats(geom, last_full_year)
 
     metrics = ee.Dictionary({
         "area_ha": ee.Image.pixelArea().divide(10000).reduceRegion(
@@ -549,7 +592,43 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
         "bio_proxy": bio_proxy_mean(geom),
         "forest_ha": forest_summary["forest_ha"],
         "forest_loss_ha": forest_summary["loss_ha"],
-        "forest_loss_pct": forest_summary["loss_pct"]
+        "forest_loss_pct": forest_summary["loss_pct"],
+        "greenhouse_ha": greenhouse["greenhouse_ha"],
+        "greenhouse_pct": greenhouse["greenhouse_pct"]
     })
 
     return metrics.getInfo()
+
+
+def greenhouse_detection_stats(geom: ee.Geometry, last_full_year: int):
+    ds = get_datasets()
+    img = (
+        ds["S2"]
+        .filterBounds(geom)
+        .filterDate(f"{last_full_year}-01-01", f"{last_full_year}-12-31")
+        .map(mask_s2_clouds)
+        .median()
+    )
+    ndvi = img.normalizedDifference(["B8", "B4"])
+    bright = img.select("B2").add(img.select("B3")).add(img.select("B4"))
+    greenhouse_mask = (
+        bright.gt(4200)
+        .And(ndvi.gt(-0.05))
+        .And(ndvi.lt(0.35))
+        .And(ds["WORLDCOVER"].eq(40).Or(ds["WORLDCOVER"].eq(50)))
+    )
+
+    area_ha = ee.Image.pixelArea().divide(10000).updateMask(greenhouse_mask).reduceRegion(
+        reducer=ee.Reducer.sum(), geometry=geom, scale=10, maxPixels=1e13
+    ).get("area")
+    total_ha = ee.Image.pixelArea().divide(10000).reduceRegion(
+        reducer=ee.Reducer.sum(), geometry=geom, scale=10, maxPixels=1e13
+    ).get("area")
+
+    safe_area = ee.Algorithms.If(ee.Algorithms.IsEqual(area_ha, None), 0, area_ha)
+    pct = ee.Algorithms.If(
+        ee.Algorithms.IsEqual(total_ha, None),
+        0,
+        ee.Algorithms.If(ee.Number(total_ha).gt(0), ee.Number(safe_area).divide(ee.Number(total_ha)).multiply(100), 0),
+    )
+    return {"greenhouse_ha": safe_area, "greenhouse_pct": pct}
