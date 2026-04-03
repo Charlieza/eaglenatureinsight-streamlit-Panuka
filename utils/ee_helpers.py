@@ -541,23 +541,24 @@ def series_recent_vs_early_delta(fc: ee.FeatureCollection):
     )
 
 
+
+
 def rainfall_anomaly_pct_from_range(geom: ee.Geometry, hist_start: int, hist_end: int):
-    baseline = annual_rain_collection(geom, 1981, 2010)
-    recent = annual_rain_collection(geom, max(hist_end - 2, hist_start), hist_end)
+    baseline = annual_rain_collection(geom, 1981, 2010).filter(ee.Filter.notNull(["value"]))
+    recent = annual_rain_collection(geom, max(hist_end - 2, hist_start), hist_end).filter(ee.Filter.notNull(["value"]))
     baseline_mean = baseline.aggregate_mean("value")
     recent_mean = recent.aggregate_mean("value")
     return ee.Algorithms.If(
-        ee.Algorithms.IsEqual(baseline_mean, None),
+        ee.Algorithms.Or(
+            ee.Algorithms.IsEqual(baseline_mean, None),
+            ee.Algorithms.IsEqual(recent_mean, None),
+        ),
         None,
         ee.Algorithms.If(
-            ee.Algorithms.IsEqual(recent_mean, None),
+            ee.Number(baseline_mean).neq(0),
+            ee.Number(recent_mean).subtract(ee.Number(baseline_mean)).divide(ee.Number(baseline_mean)).multiply(100),
             None,
-            ee.Algorithms.If(
-                ee.Number(baseline_mean).neq(0),
-                ee.Number(recent_mean).subtract(ee.Number(baseline_mean)).divide(ee.Number(baseline_mean)).multiply(100),
-                None
-            )
-        )
+        ),
     )
 
 
