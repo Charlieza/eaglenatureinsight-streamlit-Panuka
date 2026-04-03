@@ -399,3 +399,7 @@ def build_panuka_pdf_report(output_path: str, report_data: Dict[str, Any], logo_
 
     doc.build(story, onFirstPage=_page_number, onLaterPages=_page_number)
     return output_path
+
+
+def build_pdf_report(output_path: str, report_data: Dict[str, Any], logo_path: Optional[str] = None) -> str:
+    return build_panuka_pdf_report(output_path=output_path, report_data=report_data, logo_path=logo_path)
