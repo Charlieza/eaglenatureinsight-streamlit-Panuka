@@ -201,10 +201,9 @@ def build_map(center, zoom, draw_mode, lat=None, lon=None, buffer_m=None, existi
         ).add_to(m)
 
     if len(bounds) == 2:
-        m.fit_bounds(bounds, padding=(35, 35))
-        if active_name is not None:
-            m.location = [active_lat, active_lon]
-            m.options["zoom"] = zoom
+        # Keep both pilot sites visible and avoid over-zooming, which can cause
+        # the temporary "map data not yet available" tile message.
+        m.fit_bounds(bounds, padding=(35, 35), max_zoom=14)
 
     return m
 
