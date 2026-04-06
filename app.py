@@ -140,49 +140,67 @@ def build_map(center, zoom, draw_mode, lat=None, lon=None, buffer_m=None, existi
             },
         ).add_to(m)
 
-    # Always show both Panuka pilot sites to make polygon drawing easier.
+    active_name = None
+    active_lat = None
+    active_lon = None
+    try:
+        if lat not in [None, "", "None"] and lon not in [None, "", "None"]:
+            active_lat = float(lat)
+            active_lon = float(lon)
+    except (TypeError, ValueError):
+        active_lat = None
+        active_lon = None
+
     site_points = [
         ("Panuka Site 1", PRESET_TO_LOCATION["Panuka Site 1"]["lat"], PRESET_TO_LOCATION["Panuka Site 1"]["lon"]),
         ("Panuka Site 2", PRESET_TO_LOCATION["Panuka Site 2"]["lat"], PRESET_TO_LOCATION["Panuka Site 2"]["lon"]),
     ]
-    active_label = None
+
+    fg = folium.FeatureGroup(name="Panuka pilot sites")
+    bounds = []
     for name, plat, plon in site_points:
-        is_active = lat is not None and lon is not None and str(lat) not in ["", "None"] and str(lon) not in ["", "None"] and abs(float(lat) - plat) < 0.0008 and abs(float(lon) - plon) < 0.0008
+        bounds.append([plat, plon])
+        is_active = active_lat is not None and active_lon is not None and abs(active_lat - plat) < 0.0008 and abs(active_lon - plon) < 0.0008
+        if is_active:
+            active_name = name
+
         folium.CircleMarker(
-            [plat, plon],
-            radius=7 if is_active else 5,
+            location=[plat, plon],
+            radius=9 if is_active else 7,
             color="#163d63" if is_active else "#1f8f5f",
-            weight=2,
+            weight=3 if is_active else 2,
             fill=True,
             fill_color="#163d63" if is_active else "#1f8f5f",
             fill_opacity=0.95,
+            popup=folium.Popup(f"<b>{name}</b>", max_width=220),
             tooltip=name,
-        ).add_to(m)
-        folium.map.Marker(
-            [plat, plon],
-            icon=folium.DivIcon(html=f'<div style="font-size:11px;font-weight:600;color:#163d63;background:rgba(255,255,255,0.85);padding:2px 4px;border-radius:4px;">{name}</div>')
-        ).add_to(m)
-        if is_active:
-            active_label = name
+        ).add_to(fg)
 
-    if draw_mode == "Enter coordinates":
-        try:
-            lat_val = float(lat)
-            lon_val = float(lon)
-            folium.Marker([lat_val, lon_val], tooltip=active_label or "Selected point").add_to(m)
-            if buffer_m:
-                folium.Circle(
-                    [lat_val, lon_val],
-                    radius=float(buffer_m),
-                    color="#ff0000",
-                    weight=2,
-                    fill=False,
-                ).add_to(m)
-        except (TypeError, ValueError):
-            pass
+        if is_active:
+            folium.Marker(
+                [plat, plon],
+                icon=folium.Icon(color="blue", icon="map-pin", prefix="fa"),
+                tooltip=f"Selected: {name}",
+            ).add_to(fg)
+
+    fg.add_to(m)
+
+    if draw_mode == "Enter coordinates" and active_lat is not None and active_lon is not None:
+        folium.Circle(
+            [active_lat, active_lon],
+            radius=float(buffer_m or 1000),
+            color="#ff0000",
+            weight=2,
+            fill=False,
+        ).add_to(m)
+
+    if len(bounds) == 2:
+        m.fit_bounds(bounds, padding=(35, 35))
+        if active_name is not None:
+            m.location = [active_lat, active_lon]
+            m.options["zoom"] = zoom
 
     return m
-
 
 def extract_drawn_geometry(map_data):
     if not map_data:
@@ -800,6 +818,7 @@ with hist2:
     hist_end = st.number_input("Historical end year", min_value=1981, max_value=LAST_FULL_YEAR, value=LAST_FULL_YEAR, step=1)
 
 st.markdown("### Site Selection")
+st.caption("The two Panuka pilot sites are shown as map points. Select a site to centre the map there, then draw the assessment polygon around the relevant production area.")
 m = build_map(
     center=st.session_state["map_center"],
     zoom=st.session_state["map_zoom"],
