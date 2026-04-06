@@ -1005,3 +1005,4 @@ def add_report_header(elements, site_name, category,
 
     elements.append(Paragraph(info_text, info_style))
     elements.append(Spacer(1, 18))
+
