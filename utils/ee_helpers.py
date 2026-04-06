@@ -187,6 +187,52 @@ def forest_loss_with_polygon(geom: ee.Geometry) -> ee.Image:
 
 
 
+
+def flood_risk_with_polygon(geom: ee.Geometry) -> ee.Image:
+    ds = get_datasets()
+    collection = ds["FLOOD_HAZARD"].filterBounds(geom)
+    image = ee.Image(collection.first()).select("RP100_depth")
+    vis = image.visualize(
+        min=0,
+        max=2,
+        palette=["#f7fbff", "#c6dbef", "#6baed6", "#2171b5", "#08306b"],
+    )
+    return add_polygon_overlay(vis, geom)
+
+
+def soil_condition_with_polygon(geom: ee.Geometry) -> ee.Image:
+    ds = get_datasets()
+    # Use soil organic carbon as a simple soil-condition layer.
+    image = ds["SOIL_OC"].select(ds["SOIL_OC"].bandNames().get(0))
+    vis = image.visualize(
+        min=0,
+        max=80,
+        palette=["#f7fcb9", "#addd8e", "#31a354", "#006837"],
+    )
+    return add_polygon_overlay(vis, geom)
+
+
+def heat_stress_with_polygon(geom: ee.Geometry, hist_end: int) -> ee.Image:
+    ds = get_datasets()
+    start = max(hist_end - 2, 2001)
+    image = (
+        ds["MODIS_LST"]
+        .filterBounds(geom)
+        .filterDate(f"{start}-01-01", f"{hist_end}-12-31")
+        .select("LST_Day_1km")
+        .mean()
+        .multiply(0.02)
+        .subtract(273.15)
+        .rename("LST_C")
+    )
+    vis = image.visualize(
+        min=20,
+        max=40,
+        palette=["#2c7bb6", "#abd9e9", "#ffffbf", "#fdae61", "#d7191c"],
+    )
+    return add_polygon_overlay(vis, geom)
+
+
 def vegetation_change_with_polygon(geom: ee.Geometry, hist_start: int, hist_end: int) -> ee.Image:
     ds = get_datasets()
     start_year = max(hist_start, 2016)
