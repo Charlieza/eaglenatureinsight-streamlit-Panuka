@@ -51,7 +51,7 @@ def get_datasets():
     soil_texture = ee.Image("OpenLandMap/SOL/SOL_TEXTURE-CLASS_USDA-TT_M/v02")
     flood_hazard = ee.Image("JRC/CEMS_GLOFAS/FloodHazard/v2_1")
     fire_burned = ee.ImageCollection("MODIS/061/MCD64A1")
-    market_access = ee.Image("projects/malariaatlasproject/assets/accessibility/accessibility_to_cities_2015_v1_0")
+    market_access = ee.Image("projects/malariaatlasproject/assets/accessibility/accessibility_to_cities/2015_v1_0")
 
     bio_proxy = (
         ee.FeatureCollection("RESOLVE/ECOREGIONS/2017")
