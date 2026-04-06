@@ -415,7 +415,7 @@ def build_greenhouse_recommendations(metrics: Dict[str, Any]) -> List[str]:
 
     if not recs:
         recs.append(
-            "Protected-farming conditions do not currently show a single dominant warning sign, but routine monitoring of temperature, ventilation, irrigation, and crop health remains important."
+            "Protected-farming structures were not strongly identified in the current screening, but the surrounding heat, rainfall, vegetation, and water signals still support practical recommendations on ventilation, shading, irrigation planning, and crop inspection."
         )
 
     return recs
@@ -611,7 +611,7 @@ def build_pdf_report(
 
     story.append(Paragraph("9. Greenhouse and production conditions", _STYLES["SectionBrand"]))
     story.append(Paragraph(
-        "This section summarises observed conditions related to protected and open-field production environments. Greenhouse-related outputs are best read as screening signals that help prioritise management attention.",
+        "This section summarises observed conditions related to protected and open-field production environments. Even where protected-farming structures are not clearly detected, the surrounding temperature, rainfall, vegetation, and water signals can still be used to guide greenhouse-style management decisions such as ventilation, shading, irrigation planning, and crop inspection.",
         _STYLES["BodyBrand"],
     ))
     story.append(_metric_table([
@@ -623,7 +623,7 @@ def build_pdf_report(
         ("Greenhouse pest risk", _safe_text(metrics.get("greenhouse_pest_risk"))),
         ("Irrigation demand", _safe_text(metrics.get("irrigation_demand"))),
     ], (7.2 * cm, 9.8 * cm)))
-    story.append(Paragraph("Operational recommendations for protected and open-field production", _STYLES["SmallBrand"]))
+    story.append(Paragraph("Operational recommendations for protected and open-field production, including situations where greenhouse structures are not clearly detected", _STYLES["SmallBrand"]))
     _add_bullets(story, build_greenhouse_recommendations(metrics))
     _section_rule(story)
 
