@@ -165,17 +165,26 @@ def _metric_table(items: List[Tuple[str, str]], col_widths: Tuple[float, float])
     return tbl
 
 def _matrix_table(rows: List[List[str]], col_widths: Tuple[float, float, float, float]) -> Table:
-    tbl = Table(rows, colWidths=col_widths, repeatRows=1, hAlign="LEFT")
+    wrapped_rows: List[List[Any]] = []
+    for r_idx, row in enumerate(rows):
+        wrapped_row = []
+        for cell in row:
+            text = _safe_text(cell, "")
+            style = _STYLES["SmallBrand"] if r_idx == 0 else _STYLES["MutedBrand"]
+            wrapped_row.append(Paragraph(text, style))
+        wrapped_rows.append(wrapped_row)
+
+    tbl = Table(wrapped_rows, colWidths=col_widths, repeatRows=1, hAlign="LEFT", splitByRow=1)
     tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), BRAND["primary"]),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("GRID", (0, 0), (-1, -1), 0.35, BRAND["border"]),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("LEADING", (0, 0), (-1, -1), 11),
     ]))
     return tbl
 
@@ -514,7 +523,7 @@ def build_pdf_report(
             "Review storage, borehole reliance, and water planning.",
         ],
     ]
-    story.append(_matrix_table(indicator_rows, (3.5 * cm, 2.8 * cm, 5.2 * cm, 5.5 * cm)))
+    story.append(_matrix_table(indicator_rows, (3.0 * cm, 2.4 * cm, 5.4 * cm, 6.0 * cm)))
     _section_rule(story)
 
     story.append(Paragraph("5. LEAP summary", _STYLES["SectionBrand"]))
@@ -597,7 +606,7 @@ def build_pdf_report(
     matrix_rows = [["Indicator", "Current value", "What this means", "Suggested response"]]
     for row in build_tnfd_matrix(metrics):
         matrix_rows.append(list(row))
-    story.append(_matrix_table(matrix_rows, (3.4 * cm, 2.6 * cm, 5.3 * cm, 5.7 * cm)))
+    story.append(_matrix_table(matrix_rows, (2.9 * cm, 2.4 * cm, 5.5 * cm, 6.2 * cm)))
     _section_rule(story)
 
     story.append(Paragraph("9. Greenhouse and production conditions", _STYLES["SectionBrand"]))
