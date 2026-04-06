@@ -496,6 +496,231 @@ def build_overall_environmental_interpretation(metrics):
         statements.append("Environmental conditions appear broadly stable based on the available indicators, although seasonal monitoring remains important.")
     return statements
 
+
+
+def build_automated_risk_flags(metrics):
+    flags = []
+
+    def add_flag(level, title, current_value, meaning, action):
+        flags.append({
+            "Level": level,
+            "Flag": title,
+            "Current value": current_value,
+            "Why it matters": meaning,
+            "Suggested action": action,
+        })
+
+    try:
+        val = metrics.get("rain_anom_pct")
+        if val is not None:
+            f = float(val)
+            if f <= -15:
+                add_flag(
+                    "High",
+                    "Dry conditions",
+                    f"{f:.1f}%",
+                    f"Rainfall is {abs(f):.1f}% below the historical baseline, which can increase irrigation demand and crop stress.",
+                    f"Strengthen irrigation planning and review storage capacity while rainfall remains {abs(f):.1f}% below baseline.",
+                )
+            elif f >= 15:
+                add_flag(
+                    "Moderate",
+                    "Wet conditions",
+                    f"{f:.1f}%",
+                    f"Rainfall is {f:.1f}% above the historical baseline, which can increase drainage pressure, disease risk, or waterlogging in some areas.",
+                    f"Review drainage and crop inspection while rainfall remains {f:.1f}% above baseline.",
+                )
+    except Exception:
+        pass
+
+    try:
+        val = metrics.get("lst_mean")
+        if val is not None:
+            f = float(val)
+            if f >= 30:
+                add_flag(
+                    "High",
+                    "Heat stress",
+                    f"{f:.1f} °C",
+                    f"Land surface temperature is {f:.1f} °C, which indicates elevated heat conditions for crops, workers, and protected-farming environments.",
+                    f"Review shading, ventilation, and irrigation scheduling while heat conditions remain around {f:.1f} °C.",
+                )
+            elif f >= 28:
+                add_flag(
+                    "Moderate",
+                    "Warm conditions",
+                    f"{f:.1f} °C",
+                    f"Land surface temperature is {f:.1f} °C, suggesting warming conditions that should be monitored.",
+                    f"Increase heat monitoring if temperatures stay near {f:.1f} °C.",
+                )
+    except Exception:
+        pass
+
+    try:
+        val = metrics.get("soil_moisture")
+        if val is not None:
+            f = float(val)
+            if f < 0.15:
+                add_flag(
+                    "High",
+                    "Low soil moisture",
+                    f"{f:.3f}",
+                    f"Soil moisture is {f:.3f}, which suggests dry near-surface conditions and possible short-term crop water stress.",
+                    f"Check irrigation timing and soil moisture trends while surface moisture remains near {f:.3f}.",
+                )
+            elif f < 0.25:
+                add_flag(
+                    "Moderate",
+                    "Moderate soil moisture",
+                    f"{f:.3f}",
+                    f"Soil moisture is {f:.3f}, which is workable but should be monitored closely.",
+                    f"Track soil moisture and crop response while moisture remains near {f:.3f}.",
+                )
+    except Exception:
+        pass
+
+    try:
+        val = metrics.get("flood_risk")
+        if val is not None:
+            f = float(val)
+            if f >= 0.5:
+                add_flag(
+                    "High",
+                    "Flood exposure",
+                    f"{f:.2f} m",
+                    f"Mapped 1-in-100-year flood depth is {f:.2f} m, which may affect fields, access routes, or infrastructure.",
+                    f"Review drainage and infrastructure placement where mapped flood depth is around {f:.2f} m.",
+                )
+            elif f > 0.1:
+                add_flag(
+                    "Moderate",
+                    "Flood sensitivity",
+                    f"{f:.2f} m",
+                    f"Mapped flood depth is {f:.2f} m, which suggests some flood exposure in the wider site context.",
+                    f"Check vulnerable low-lying areas while mapped flood depth remains around {f:.2f} m.",
+                )
+    except Exception:
+        pass
+
+    try:
+        val = metrics.get("fire_risk")
+        if val is not None:
+            f = float(val)
+            if f > 5:
+                add_flag(
+                    "Moderate",
+                    "Recent burned-area signal",
+                    f"{f:.1f}",
+                    f"The burned-area indicator is {f:.1f}, which suggests some recent fire signal in the production landscape.",
+                    f"Review firebreaks and dry-season planning while the recent burned-area signal remains {f:.1f}.",
+                )
+    except Exception:
+        pass
+
+    try:
+        val = metrics.get("greenhouse_pest_risk")
+        if val is not None:
+            f = float(val)
+            if f >= 70:
+                add_flag(
+                    "High",
+                    "Protected-farming pest pressure",
+                    f"{f:.0f}/100",
+                    f"The greenhouse pest-risk proxy is {f:.0f}/100, suggesting elevated pressure under current heat and humidity conditions.",
+                    f"Increase greenhouse inspection frequency while the pest-risk proxy remains {f:.0f}/100.",
+                )
+            elif f >= 50:
+                add_flag(
+                    "Moderate",
+                    "Protected-farming pest watch",
+                    f"{f:.0f}/100",
+                    f"The greenhouse pest-risk proxy is {f:.0f}/100, suggesting conditions that merit closer inspection.",
+                    f"Maintain regular greenhouse scouting while the pest-risk proxy remains {f:.0f}/100.",
+                )
+    except Exception:
+        pass
+
+    try:
+        val = metrics.get("travel_time_to_market")
+        if val is not None:
+            f = float(val)
+            if f > 120:
+                add_flag(
+                    "Moderate",
+                    "Market-access constraint",
+                    f"{f:.0f} min",
+                    f"Estimated travel time to market is {f:.0f} minutes, which may affect logistics, spoilage risk, or market access for some SMEs.",
+                    f"Use the {f:.0f}-minute travel time context in logistics and market-readiness planning.",
+                )
+    except Exception:
+        pass
+
+    if not flags:
+        add_flag(
+            "Monitor",
+            "No dominant automated flag",
+            "Current conditions",
+            "The current metric set does not show one dominant automated warning sign, but seasonal review remains important.",
+            "Continue routine monitoring and update the assessment as conditions change.",
+        )
+
+    return flags
+
+
+def make_rainfall_ndvi_df(ndvi_hist_df, rain_hist_df):
+    if ndvi_hist_df.empty or rain_hist_df.empty:
+        return pd.DataFrame()
+    df = ndvi_hist_df.rename(columns={"value": "ndvi_mean"}).merge(
+        rain_hist_df.rename(columns={"value": "rainfall_mm"}), on="year", how="inner"
+    )
+    df["rain_anom_pct_proxy"] = (
+        (df["rainfall_mm"] - df["rainfall_mm"].mean()) / df["rainfall_mm"].mean() * 100
+        if df["rainfall_mm"].mean() not in [0, None]
+        else 0
+    )
+    return df
+
+
+def rainfall_ndvi_scatter_to_png_bytes(df):
+    if df.empty:
+        return None
+    fig = px.scatter(
+        df,
+        x="rain_anom_pct_proxy",
+        y="ndvi_mean",
+        hover_data=["year"],
+        title="Rainfall vs Vegetation Health",
+        labels={"rain_anom_pct_proxy": "Rainfall anomaly proxy (%)", "ndvi_mean": "NDVI"},
+        trendline="ols",
+    )
+    img = BytesIO()
+    fig.write_image(img, format="png", width=1200, height=700)
+    return img.getvalue()
+
+
+def water_balance_proxy_to_png_bytes(rain_hist_df, metrics):
+    if rain_hist_df.empty:
+        return None
+    recent_rain = float(rain_hist_df["value"].tail(min(3, len(rain_hist_df))).mean()) if len(rain_hist_df) else 0.0
+    et = metrics.get("evapotranspiration")
+    if et is None:
+        return None
+    df = pd.DataFrame({
+        "Measure": ["Recent rainfall mean", "Current evapotranspiration"],
+        "Value": [recent_rain, float(et)],
+    })
+    fig = px.bar(df, x="Measure", y="Value", title="Water Balance Proxy", text="Value")
+    img = BytesIO()
+    fig.write_image(img, format="png", width=1200, height=700)
+    return img.getvalue()
+
+
+def risk_flags_to_dataframe(flags):
+    df = pd.DataFrame(flags)
+    if df.empty:
+        return df
+    return df.fillna("Not available").astype(str)
+
 def build_evaluate_content(category, metrics):
     greenhouse_pct = metrics.get("greenhouse_pct")
     try:
@@ -1033,6 +1258,16 @@ if run:
                 "description": "This chart shows how the selected area is currently divided across land-cover classes such as tree cover, cropland, built-up land, and water.",
                 "bytes": landcover_bar_to_png_bytes(lc_df),
             },
+            {
+                "title": "Rainfall vs vegetation health",
+                "description": "This scatter plot compares rainfall anomaly proxy against vegetation condition. It helps show whether vegetation performance is moving with rainfall conditions.",
+                "bytes": rainfall_ndvi_scatter_to_png_bytes(make_rainfall_ndvi_df(ndvi_hist_df, rain_hist_df)),
+            },
+            {
+                "title": "Water balance proxy",
+                "description": "This chart compares recent rainfall with current evapotranspiration to support a simple water-demand interpretation.",
+                "bytes": water_balance_proxy_to_png_bytes(rain_hist_df, metrics),
+            },
         ]
 
         image_payloads = [
@@ -1063,6 +1298,8 @@ if run:
             },
         ]
 
+        automated_flags = build_automated_risk_flags(metrics)
+
         pdf_bytes = build_pdf_report(
             preset=preset,
             category=category,
@@ -1072,6 +1309,7 @@ if run:
             risk=risk,
             image_payloads=image_payloads,
             chart_payloads=chart_payloads,
+            automated_flags=automated_flags,
         )
 
         st.session_state["report_payload"] = {
@@ -1079,11 +1317,14 @@ if run:
             "file_name": f"Panuka_EagleNatureInsight_Report_{date.today().isoformat()}.pdf",
         }
 
+        automated_flags = build_automated_risk_flags(metrics)
+
         st.session_state["results_payload"] = {
             "preset": preset,
             "category": category,
             "metrics": metrics,
             "risk": risk,
+            "automated_flags": automated_flags,
             "satellite_url": satellite_url,
             "ndvi_url": ndvi_url,
             "landcover_url": landcover_url,
@@ -1117,6 +1358,7 @@ if results is not None:
     category = results["category"]
     metrics = results["metrics"]
     risk = results["risk"]
+    automated_flags = results.get("automated_flags", [])
     satellite_url = results["satellite_url"]
     ndvi_url = results["ndvi_url"]
     landcover_url = results["landcover_url"]
@@ -1273,6 +1515,10 @@ if results is not None:
         matrix_df = matrix_df.fillna("Not available").astype(str)
         st.dataframe(matrix_df, width='stretch', hide_index=True)
 
+        st.markdown("### Automated risk flags")
+        flags_df = risk_flags_to_dataframe(automated_flags)
+        st.dataframe(flags_df, width='stretch', hide_index=True)
+
         st.markdown("### Overall environmental interpretation")
         for statement in build_overall_environmental_interpretation(metrics):
             st.write(f"• {statement}")
@@ -1323,6 +1569,23 @@ if results is not None:
         if not water_hist_df.empty:
             fig = px.line(water_hist_df, x="year", y="value", title="Historical Water Presence (JRC)")
             st.plotly_chart(fig, width='stretch', key="trend_water")
+
+        rain_ndvi_df = make_rainfall_ndvi_df(ndvi_hist_df, rain_hist_df)
+        if not rain_ndvi_df.empty:
+            fig = px.scatter(
+                rain_ndvi_df,
+                x="rain_anom_pct_proxy",
+                y="ndvi_mean",
+                hover_data=["year"],
+                title="Rainfall vs Vegetation Health",
+                trendline="ols",
+                labels={"rain_anom_pct_proxy": "Rainfall anomaly proxy (%)", "ndvi_mean": "NDVI"},
+            )
+            st.plotly_chart(fig, width='stretch', key="trend_rain_ndvi")
+
+        wb_bytes = water_balance_proxy_to_png_bytes(rain_hist_df, metrics)
+        if wb_bytes is not None:
+            st.image(wb_bytes, caption="Water Balance Proxy: recent rainfall mean vs current evapotranspiration", width='stretch')
 
     with tab8:
         st.markdown("## Detailed results")
@@ -1383,3 +1646,4 @@ if results is not None:
         if not lc_df.empty:
             fig = build_landcover_bar(lc_df)
             st.plotly_chart(fig, width='stretch', key="detail_landcover_bar")
+
