@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 import math
+from datetime import date
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from reportlab.lib import colors
@@ -131,7 +133,48 @@ def fmt_num(value: Any, digits: int = 2, suffix: str = "") -> str:
         return "Not available"
     return f"{num:.{digits}f}{suffix}"
 
+def _resolve_logo_path() -> Path:
+    candidates = [
+        Path(__file__).resolve().parent.parent / "assets" / "logo.png",
+        Path(__file__).resolve().parent / "assets" / "logo.png",
+        Path("assets") / "logo.png",
+    ]
+    for candidate in candidates:
+        try:
+            if candidate.exists():
+                return candidate
+        except Exception:
+            pass
+    return candidates[-1]
 
+
+def add_report_header(
+    story: List[Any],
+    preset: str,
+    category: str,
+    hist_start: int,
+    hist_end: int,
+) -> None:
+    logo_path = _resolve_logo_path()
+
+    try:
+        if logo_path.exists():
+            logo = Image(str(logo_path))
+            logo._restrictSize(4.2 * cm, 2.2 * cm)
+            story.append(logo)
+            story.append(Spacer(1, 0.2 * cm))
+    except Exception:
+        pass
+
+    story.append(Paragraph("EagleNatureInsight™ TNFD Assessment Report", _STYLES["TitleBrand"]))
+    story.append(Paragraph(
+        f"Report date: {date.today().strftime('%d %B %Y')}<br/>"
+        f"Site: {_safe_text(preset)}<br/>"
+        f"Category: {_safe_text(category)}<br/>"
+        f"Assessment period: {hist_start} to {hist_end}",
+        _STYLES["SubBrand"],
+    ))
+    story.append(Spacer(1, 0.15 * cm))
 
 def classify_indicator(metric_name, value):
     try:
@@ -654,7 +697,14 @@ def build_pdf_report(
 
     story: List[Any] = []
 
-    story.append(Paragraph("EagleNatureInsight | Panuka Pilot", _STYLES["TitleBrand"]))
+    add_report_header(
+        story=story,
+        preset=preset,
+        category=category,
+        hist_start=hist_start,
+        hist_end=hist_end,
+    )
+
     story.append(Paragraph(
         "TNFD-aligned agribusiness screening report for Panuka AgriBiz Hub. This report translates satellite and environmental signals into plain-language insights for farm operations, greenhouse conditions, water planning, climate resilience, and SME financing discussions.",
         _STYLES["SubBrand"],
@@ -950,59 +1000,3 @@ def build_pdf_report(
 
     doc.build(story, onFirstPage=_page_number, onLaterPages=_page_number)
     return buffer.getvalue()
-
-
-
-# ---------------------------------------------------------------------
-# Report Header (Logo + Basic Information)
-# ---------------------------------------------------------------------
-from datetime import datetime
-from reportlab.platypus import Image, Paragraph, Spacer
-from reportlab.lib.styles import ParagraphStyle
-
-def add_report_header(elements, site_name, category,
-                      location, hist_start, hist_end):
-
-    title_style = ParagraphStyle(
-        name="Title",
-        fontSize=16,
-        leading=18,
-        spaceAfter=10
-    )
-
-    info_style = ParagraphStyle(
-        name="Info",
-        fontSize=10,
-        leading=14
-    )
-
-    logo_path = "assets/logo.png"
-
-    try:
-        logo = Image(logo_path, width=140, height=70)
-        elements.append(logo)
-    except Exception:
-        pass
-
-    elements.append(Spacer(1, 12))
-
-    elements.append(
-        Paragraph(
-            "EagleNatureInsight™ TNFD Assessment Report",
-            title_style
-        )
-    )
-
-    report_date = datetime.today().strftime("%d %B %Y")
-
-    info_text = (
-        "<b>Site:</b> " + str(site_name) + "<br/>"
-        "<b>Location:</b> " + str(location) + "<br/>"
-        "<b>Category:</b> " + str(category) + "<br/>"
-        "<b>Assessment period:</b> " + str(hist_start) + " – " + str(hist_end) + "<br/>"
-        "<b>Report date:</b> " + report_date
-    )
-
-    elements.append(Paragraph(info_text, info_style))
-    elements.append(Spacer(1, 18))
-
