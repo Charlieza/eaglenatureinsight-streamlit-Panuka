@@ -845,11 +845,11 @@ with left_col:
 with right_col:
     focus1, focus2 = st.columns(2)
     with focus1:
-        if st.button("Focus Site 1", use_container_width=True):
+        if st.button("Focus Site 1", width='stretch'):
             apply_preset("Panuka Site 1")
             st.rerun()
     with focus2:
-        if st.button("Focus Site 2", use_container_width=True):
+        if st.button("Focus Site 2", width='stretch'):
             apply_preset("Panuka Site 2")
             st.rerun()
 
@@ -932,7 +932,7 @@ with st.expander("Show geometry payload"):
     else:
         st.json(geometry_payload)
 
-run = st.button("Run Assessment", use_container_width=True)
+run = st.button("Run Assessment", width='stretch')
 
 if run:
     if ee_geom is None:
@@ -1107,7 +1107,7 @@ if st.session_state["report_payload"] is not None:
         data=st.session_state["report_payload"]["pdf_bytes"],
         file_name=st.session_state["report_payload"]["file_name"],
         mime="application/pdf",
-        use_container_width=True,
+        width='stretch',
     )
 
 results = st.session_state["results_payload"]
@@ -1193,7 +1193,7 @@ if results is not None:
         st.markdown("### Current land-cover composition")
         if not lc_df.empty:
             fig = build_landcover_bar(lc_df)
-            st.plotly_chart(fig, use_container_width=True, key="locate_landcover_bar")
+            st.plotly_chart(fig, width='stretch', key="locate_landcover_bar")
             st.caption("This chart shows how the selected area is currently divided across land-cover classes such as tree cover, cropland, built-up land, and water.")
 
     with tab3:
@@ -1270,7 +1270,8 @@ if results is not None:
         st.markdown("### TNFD environmental risk matrix")
         matrix_df = pd.DataFrame(matrix_rows)
         matrix_df.columns = ["Indicator", "Current value", "What this means", "Suggested response"]
-        st.dataframe(matrix_df, use_container_width=True, hide_index=True)
+        matrix_df = matrix_df.fillna("Not available").astype(str)
+        st.dataframe(matrix_df, width='stretch', hide_index=True)
 
         st.markdown("### Overall environmental interpretation")
         for statement in build_overall_environmental_interpretation(metrics):
@@ -1297,31 +1298,31 @@ if results is not None:
 
         img1, img2 = st.columns(2)
         with img1:
-            st.image(satellite_url, caption="Satellite image with polygon", use_container_width=True)
-            st.image(ndvi_url, caption="NDVI image with polygon", use_container_width=True)
-            st.image(veg_change_url, caption="Vegetation change map with polygon", use_container_width=True)
+            st.image(satellite_url, caption="Satellite image with polygon", width='stretch')
+            st.image(ndvi_url, caption="NDVI image with polygon", width='stretch')
+            st.image(veg_change_url, caption="Vegetation change map with polygon", width='stretch')
         with img2:
-            st.image(landcover_url, caption="Land-cover image with polygon", use_container_width=True)
-            st.image(forest_loss_url, caption="Forest loss map with polygon", use_container_width=True)
+            st.image(landcover_url, caption="Land-cover image with polygon", width='stretch')
+            st.image(forest_loss_url, caption="Forest loss map with polygon", width='stretch')
 
     with tab7:
         st.markdown("## Historical plots")
 
         if not ndvi_hist_df.empty:
             fig = px.line(ndvi_hist_df, x="year", y="value", title="Historical NDVI (Landsat)")
-            st.plotly_chart(fig, use_container_width=True, key="trend_ndvi")
+            st.plotly_chart(fig, width='stretch', key="trend_ndvi")
         if not rain_hist_df.empty:
             fig = px.line(rain_hist_df, x="year", y="value", title="Historical Rainfall (CHIRPS)")
-            st.plotly_chart(fig, use_container_width=True, key="trend_rain")
+            st.plotly_chart(fig, width='stretch', key="trend_rain")
         if not lst_hist_df.empty:
             fig = px.line(lst_hist_df, x="year", y="value", title="Historical Land Surface Temperature (MODIS)")
-            st.plotly_chart(fig, use_container_width=True, key="trend_lst")
+            st.plotly_chart(fig, width='stretch', key="trend_lst")
         if not forest_hist_df.empty:
             fig = px.bar(forest_hist_df, x="year", y="value", title="Historical Forest Loss by Year (Hansen)")
-            st.plotly_chart(fig, use_container_width=True, key="trend_forest")
+            st.plotly_chart(fig, width='stretch', key="trend_forest")
         if not water_hist_df.empty:
             fig = px.line(water_hist_df, x="year", y="value", title="Historical Water Presence (JRC)")
-            st.plotly_chart(fig, use_container_width=True, key="trend_water")
+            st.plotly_chart(fig, width='stretch', key="trend_water")
 
     with tab8:
         st.markdown("## Detailed results")
@@ -1376,8 +1377,9 @@ if results is not None:
                 ],
             }
         )
-        st.dataframe(detail_df, use_container_width=True)
+        detail_df["Value"] = detail_df["Value"].apply(lambda x: "Not available" if x is None else str(x))
+        st.dataframe(detail_df, width='stretch')
 
         if not lc_df.empty:
             fig = build_landcover_bar(lc_df)
-            st.plotly_chart(fig, use_container_width=True, key="detail_landcover_bar")
+            st.plotly_chart(fig, width='stretch', key="detail_landcover_bar")
