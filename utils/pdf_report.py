@@ -333,6 +333,54 @@ def build_tnfd_matrix(metrics: Dict[str, Any]) -> List[Tuple[str, str, str, str]
             "Review seasonal planning and irrigation scheduling."
         ),
         (
+            "Soil moisture",
+            fmt_num(metrics.get("soil_moisture"), 3),
+            "Soil moisture helps indicate how much water is currently available near the surface.",
+            "Use with irrigation planning and field checks for crop stress."
+        ),
+        (
+            "Evapotranspiration",
+            fmt_num(metrics.get("evapotranspiration"), 1),
+            "Evapotranspiration helps indicate crop and soil water loss to the atmosphere.",
+            "Review crop water demand and irrigation timing."
+        ),
+        (
+            "Groundwater anomaly",
+            fmt_num(metrics.get("groundwater_anomaly"), 2),
+            "Groundwater anomaly gives a regional indication of terrestrial water storage conditions.",
+            "Use as a regional water-security signal when discussing boreholes or long-term irrigation."
+        ),
+        (
+            "Soil organic carbon",
+            fmt_num(metrics.get("soil_organic_carbon"), 1),
+            "Soil organic carbon is a useful proxy for soil fertility, structure, and water-holding support.",
+            "Use with soil testing and soil management planning."
+        ),
+        (
+            "Soil texture class",
+            fmt_num(metrics.get("soil_texture_class"), 1),
+            "Soil texture influences drainage, water-holding capacity, and crop suitability.",
+            "Use with farm-specific soil interpretation and crop planning."
+        ),
+        (
+            "Flood risk",
+            fmt_num(metrics.get("flood_risk"), 2),
+            "Flood hazard helps indicate whether parts of the site may be exposed to inundation.",
+            "Review drainage, site layout, and sensitive infrastructure placement."
+        ),
+        (
+            "Fire risk",
+            fmt_num(metrics.get("fire_risk"), 1),
+            "Burned-area history helps indicate whether the surrounding landscape has shown fire activity.",
+            "Review seasonal fire preparedness where relevant."
+        ),
+        (
+            "Market access",
+            fmt_num(metrics.get("travel_time_to_market"), 1, " min"),
+            "Travel time to a major centre can affect logistics, market access, and operating efficiency.",
+            "Use with transport and off-take planning for SME support."
+        ),
+        (
             "Land condition",
             fmt_num(metrics.get("forest_loss_pct"), 1, "%"),
             "Landscape change can affect ecosystem stability, local resilience, and longer-term production conditions.",
@@ -484,6 +532,14 @@ def build_pdf_report(
         ("Built-up area", fmt_num(metrics.get("built_pct"), 1, "%")),
         ("Surface-water occurrence", fmt_num(metrics.get("water_occ"), 1)),
         ("Forest loss", fmt_num(metrics.get("forest_loss_pct"), 1, "%")),
+        ("Soil moisture", fmt_num(metrics.get("soil_moisture"), 3)),
+        ("Evapotranspiration", fmt_num(metrics.get("evapotranspiration"), 1)),
+        ("Groundwater anomaly", fmt_num(metrics.get("groundwater_anomaly"), 2)),
+        ("Soil organic carbon", fmt_num(metrics.get("soil_organic_carbon"), 1)),
+        ("Soil texture class", fmt_num(metrics.get("soil_texture_class"), 1)),
+        ("Flood risk", fmt_num(metrics.get("flood_risk"), 2)),
+        ("Fire risk", fmt_num(metrics.get("fire_risk"), 1)),
+        ("Travel time to market", fmt_num(metrics.get("travel_time_to_market"), 1, " min")),
     ], (7.2 * cm, 9.8 * cm)))
     _section_rule(story)
 
@@ -519,6 +575,36 @@ def build_pdf_report(
             fmt_num(metrics.get("water_occ"), 1),
             "Shows whether visible water is limited or more available in the surrounding context.",
             "Review storage, borehole reliance, and water planning.",
+        ],
+        [
+            "Soil moisture",
+            fmt_num(metrics.get("soil_moisture"), 3),
+            "Shows whether the near-surface soil appears relatively dry or moist at coarse resolution.",
+            "Use with irrigation scheduling and field verification.",
+        ],
+        [
+            "Evapotranspiration",
+            fmt_num(metrics.get("evapotranspiration"), 1),
+            "Shows how much water vegetation and soil are losing to the atmosphere.",
+            "Use as a crop-water-demand indicator.",
+        ],
+        [
+            "Groundwater anomaly",
+            fmt_num(metrics.get("groundwater_anomaly"), 2),
+            "Shows whether broader terrestrial water storage is below or above its reference condition.",
+            "Use when considering long-term irrigation and borehole resilience.",
+        ],
+        [
+            "Flood risk",
+            fmt_num(metrics.get("flood_risk"), 2),
+            "Shows whether parts of the site may be more exposed to river flood hazard.",
+            "Use for drainage and infrastructure planning.",
+        ],
+        [
+            "Travel time to market",
+            fmt_num(metrics.get("travel_time_to_market"), 1, " min"),
+            "Shows approximate travel time to a major centre and helps indicate logistics pressure.",
+            "Use for SME support, logistics planning, and market access discussions.",
         ],
     ]
     story.append(_matrix_table(indicator_rows, (3.0 * cm, 2.4 * cm, 5.4 * cm, 6.0 * cm)))
