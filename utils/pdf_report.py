@@ -283,29 +283,27 @@ def _derive_findings(metrics: Dict[str, Any]) -> List[str]:
     return findings[:3]
 
 def _image_block(story: List[Any], title: str, description: str, img_data: Any) -> None:
+    bio = _normalize_image_input(img_data)
+    if not bio:
+        return
+    img = _fit_image(bio, 17.5 * cm, 10.0 * cm)
+    if not img:
+        return
     story.append(Paragraph(title, _STYLES["SmallBrand"]))
     story.append(Paragraph(description, _STYLES["MutedBrand"]))
-    bio = _normalize_image_input(img_data)
-    if bio:
-        img = _fit_image(bio, 17.5 * cm, 10.0 * cm)
-        if img:
-            story.append(img)
-            story.append(Spacer(1, 0.15 * cm))
-            return
-    story.append(Paragraph("Image not available in this export.", _STYLES["MutedBrand"]))
+    story.append(img)
     story.append(Spacer(1, 0.15 * cm))
 
 def _chart_block(story: List[Any], title: str, description: str, chart_data: Any) -> None:
+    bio = _normalize_image_input(chart_data)
+    if not bio:
+        return
+    img = _fit_image(bio, 17.5 * cm, 8.8 * cm)
+    if not img:
+        return
     story.append(Paragraph(title, _STYLES["SmallBrand"]))
     story.append(Paragraph(description, _STYLES["MutedBrand"]))
-    bio = _normalize_image_input(chart_data)
-    if bio:
-        img = _fit_image(bio, 17.5 * cm, 8.8 * cm)
-        if img:
-            story.append(img)
-            story.append(Spacer(1, 0.15 * cm))
-            return
-    story.append(Paragraph("Plot not available in this export.", _STYLES["MutedBrand"]))
+    story.append(img)
     story.append(Spacer(1, 0.15 * cm))
 
 def build_tnfd_matrix(metrics: Dict[str, Any]) -> List[Tuple[str, str, str, str]]:
