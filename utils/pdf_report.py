@@ -131,6 +131,117 @@ def fmt_num(value: Any, digits: int = 2, suffix: str = "") -> str:
         return "Not available"
     return f"{num:.{digits}f}{suffix}"
 
+
+
+def classify_indicator(metric_name, value):
+    try:
+        if value is None or value == "":
+            return "Not available"
+        v = float(value)
+    except Exception:
+        return "Not available"
+
+    if metric_name == "rain_anom_pct":
+        if v <= -20:
+            return "High concern"
+        if v <= -10:
+            return "Warning"
+        if v <= -5:
+            return "Watch"
+        return "Favourable"
+
+    if metric_name == "soil_moisture":
+        if v < 0.12:
+            return "High concern"
+        if v < 0.18:
+            return "Warning"
+        if v < 0.25:
+            return "Watch"
+        return "Favourable"
+
+    if metric_name == "lst_mean":
+        if v > 33:
+            return "High concern"
+        if v > 30:
+            return "Warning"
+        if v > 28:
+            return "Watch"
+        return "Favourable"
+
+    if metric_name == "flood_risk":
+        if v >= 0.5:
+            return "High concern"
+        if v >= 0.2:
+            return "Warning"
+        if v > 0:
+            return "Watch"
+        return "Favourable"
+
+    if metric_name == "water_occ":
+        if v < 5:
+            return "Warning"
+        if v < 15:
+            return "Watch"
+        return "Favourable"
+
+    if metric_name == "ndvi_current":
+        if v < 0.2:
+            return "High concern"
+        if v < 0.35:
+            return "Warning"
+        if v < 0.5:
+            return "Watch"
+        return "Favourable"
+
+    if metric_name == "ndvi_trend":
+        if v < -0.05:
+            return "High concern"
+        if v < -0.02:
+            return "Warning"
+        if v < 0:
+            return "Watch"
+        return "Favourable"
+
+    if metric_name == "evapotranspiration":
+        if v > 25:
+            return "Warning"
+        if v > 18:
+            return "Watch"
+        return "Favourable"
+
+    if metric_name == "travel_time_to_market":
+        if v > 180:
+            return "High concern"
+        if v > 120:
+            return "Warning"
+        if v > 60:
+            return "Watch"
+        return "Favourable"
+
+    if metric_name == "fire_risk":
+        if v > 10:
+            return "Warning"
+        if v > 0:
+            return "Watch"
+        return "Favourable"
+
+    return "Watch"
+
+
+def status_scale_text(metric_name):
+    scales = {
+        "rain_anom_pct": "Favourable > -5%; Watch -5% to -10%; Warning -10% to -20%; High concern below -20%",
+        "soil_moisture": "Favourable >= 0.25; Watch 0.18 to 0.25; Warning 0.12 to 0.18; High concern below 0.12",
+        "lst_mean": "Favourable <= 28°C; Watch 28–30°C; Warning 30–33°C; High concern above 33°C",
+        "flood_risk": "Favourable = 0 m; Watch 0–0.2 m; Warning 0.2–0.5 m; High concern above 0.5 m",
+        "water_occ": "Favourable >= 15; Watch 5–15; Warning below 5",
+        "ndvi_current": "Favourable >= 0.50; Watch 0.35–0.50; Warning 0.20–0.35; High concern below 0.20",
+        "ndvi_trend": "Favourable >= 0; Watch 0 to -0.02; Warning -0.02 to -0.05; High concern below -0.05",
+        "evapotranspiration": "Favourable <= 18; Watch 18–25; Warning above 25",
+        "travel_time_to_market": "Favourable <= 60 min; Watch 60–120 min; Warning 120–180 min; High concern above 180 min",
+        "fire_risk": "Favourable = 0; Watch 0–10; Warning above 10",
+    }
+    return scales.get(metric_name, "Site screening scale")
 def _fit_image(source: Any, max_width: float, max_height: float) -> Optional[Image]:
     try:
         img = Image(source)
@@ -361,66 +472,83 @@ def _chart_block(story: List[Any], title: str, description: str, chart_data: Any
     story.append(Spacer(1, 0.15 * cm))
 
 
-def build_tnfd_matrix(metrics: Dict[str, Any]) -> List[Tuple[str, str, str, str]]:
-    water = metrics.get("water_occ")
-    heat = metrics.get("lst_mean")
-    ndvi = metrics.get("ndvi_current")
-    rain = metrics.get("rain_anom_pct")
-    soil_m = metrics.get("soil_moisture")
-    et = metrics.get("evapotranspiration")
-    flood = metrics.get("flood_risk")
-    market = metrics.get("travel_time_to_market")
-
-    return [
-        (
-            "Water availability",
-            fmt_num(water, 1),
-            f"Visible surface-water occurrence is {fmt_num(water, 1)}, which helps indicate whether the site may rely more heavily on irrigation, boreholes, or storage.",
-            f"Use the current water-occurrence value of {fmt_num(water, 1)} to guide storage and irrigation planning."
-        ),
-        (
-            "Heat stress",
-            fmt_num(heat, 1, " °C"),
-            f"Land surface temperature is {fmt_num(heat, 1, ' °C')}, which indicates the current level of heat pressure on crops, workers, and protected-farming areas.",
-            f"If temperatures remain around {fmt_num(heat, 1, ' °C')}, strengthen shading, ventilation, and heat management."
-        ),
-        (
-            "Vegetation condition",
-            fmt_num(ndvi, 3),
-            f"Current NDVI is {fmt_num(ndvi, 3)}, which gives a simple signal of vegetation strength and possible plant stress.",
-            f"Use the current NDVI value of {fmt_num(ndvi, 3)} together with field checks and crop observations."
-        ),
-        (
-            "Rainfall variability",
-            fmt_num(rain, 1, "%"),
-            f"Rainfall anomaly is {fmt_num(rain, 1, '%')}, which shows how current rainfall conditions compare with the historical baseline.",
-            f"Adjust irrigation and seasonal planning in response to the current rainfall anomaly of {fmt_num(rain, 1, '%')}."
-        ),
-        (
-            "Soil moisture",
-            fmt_num(soil_m, 3),
-            f"Soil moisture is {fmt_num(soil_m, 3)}, which indicates current near-surface wetness and short-term crop water conditions.",
-            f"Use the current soil-moisture value of {fmt_num(soil_m, 3)} to guide irrigation timing and field checks."
-        ),
-        (
-            "Evapotranspiration",
-            fmt_num(et, 1),
-            f"Evapotranspiration is {fmt_num(et, 1)}, which indicates how much water crops may be losing to the atmosphere.",
-            f"If evapotranspiration remains near {fmt_num(et, 1)}, review crop water demand and irrigation supply."
-        ),
-        (
-            "Flood hazard",
-            fmt_num(flood, 2, " m"),
-            f"Mapped flood depth is {fmt_num(flood, 2, ' m')} for a 1-in-100-year event, which helps indicate possible flood exposure.",
-            f"Use the current flood-depth value of {fmt_num(flood, 2, ' m')} in drainage and infrastructure planning."
-        ),
-        (
-            "Market access",
-            fmt_num(market, 0, " min"),
-            f"Estimated travel time to market is {fmt_num(market, 0, ' min')}, which gives a simple logistics and market-access context for SME operations.",
-            f"Use the current travel-time value of {fmt_num(market, 0, ' min')} in logistics and market-readiness planning."
-        ),
+def build_tnfd_matrix(metrics: Dict[str, Any]) -> List[Dict[str, str]]:
+    items = [
+        {
+            "metric_name": "water_occ",
+            "indicator": "Water availability",
+            "value": fmt_num(metrics.get("water_occ"), 1),
+            "meaning": f"Visible surface-water occurrence is {fmt_num(metrics.get('water_occ'), 1)}, which helps indicate whether the site may rely more heavily on irrigation, boreholes, or storage.",
+            "response": f"Use the current water-occurrence value of {fmt_num(metrics.get('water_occ'), 1)} to guide storage and irrigation planning.",
+        },
+        {
+            "metric_name": "lst_mean",
+            "indicator": "Heat stress",
+            "value": fmt_num(metrics.get("lst_mean"), 1, " °C"),
+            "meaning": f"Land surface temperature is {fmt_num(metrics.get('lst_mean'), 1, ' °C')}, which indicates the current level of heat pressure on crops, workers, and protected-farming areas.",
+            "response": f"If temperatures remain around {fmt_num(metrics.get('lst_mean'), 1, ' °C')}, strengthen shading, ventilation, and heat management.",
+        },
+        {
+            "metric_name": "ndvi_current",
+            "indicator": "Vegetation condition",
+            "value": fmt_num(metrics.get("ndvi_current"), 3),
+            "meaning": f"Current NDVI is {fmt_num(metrics.get('ndvi_current'), 3)}, which gives a simple signal of vegetation strength and possible plant stress.",
+            "response": f"Use the current NDVI value of {fmt_num(metrics.get('ndvi_current'), 3)} together with field checks and crop observations.",
+        },
+        {
+            "metric_name": "ndvi_trend",
+            "indicator": "Vegetation trend",
+            "value": fmt_num(metrics.get("ndvi_trend"), 3),
+            "meaning": f"Vegetation trend is {fmt_num(metrics.get('ndvi_trend'), 3)}, showing whether vegetation is improving, stable, or weakening over time.",
+            "response": f"Monitor soil moisture, crop stress, and local management conditions while the vegetation trend remains {fmt_num(metrics.get('ndvi_trend'), 3)}.",
+        },
+        {
+            "metric_name": "rain_anom_pct",
+            "indicator": "Rainfall variability",
+            "value": fmt_num(metrics.get("rain_anom_pct"), 1, "%"),
+            "meaning": f"Rainfall anomaly is {fmt_num(metrics.get('rain_anom_pct'), 1, '%')}, which shows how current rainfall conditions compare with the historical baseline.",
+            "response": f"Adjust irrigation and seasonal planning in response to the current rainfall anomaly of {fmt_num(metrics.get('rain_anom_pct'), 1, '%')}.",
+        },
+        {
+            "metric_name": "soil_moisture",
+            "indicator": "Soil moisture",
+            "value": fmt_num(metrics.get("soil_moisture"), 3),
+            "meaning": f"Soil moisture is {fmt_num(metrics.get('soil_moisture'), 3)}, which indicates current near-surface wetness and short-term crop water conditions.",
+            "response": f"Use the current soil-moisture value of {fmt_num(metrics.get('soil_moisture'), 3)} to guide irrigation timing and field checks.",
+        },
+        {
+            "metric_name": "evapotranspiration",
+            "indicator": "Evapotranspiration",
+            "value": fmt_num(metrics.get("evapotranspiration"), 1),
+            "meaning": f"Evapotranspiration is {fmt_num(metrics.get('evapotranspiration'), 1)}, which indicates how much water crops may be losing to the atmosphere.",
+            "response": f"If evapotranspiration remains near {fmt_num(metrics.get('evapotranspiration'), 1)}, review crop water demand and irrigation supply.",
+        },
+        {
+            "metric_name": "flood_risk",
+            "indicator": "Flood hazard",
+            "value": fmt_num(metrics.get("flood_risk"), 2, " m"),
+            "meaning": f"Mapped flood depth is {fmt_num(metrics.get('flood_risk'), 2, ' m')} for a 1-in-100-year event, which helps indicate possible flood exposure.",
+            "response": f"Use the current flood-depth value of {fmt_num(metrics.get('flood_risk'), 2, ' m')} in drainage and infrastructure planning.",
+        },
+        {
+            "metric_name": "travel_time_to_market",
+            "indicator": "Market access",
+            "value": fmt_num(metrics.get("travel_time_to_market"), 0, " min"),
+            "meaning": f"Estimated travel time to market is {fmt_num(metrics.get('travel_time_to_market'), 0, ' min')}, which gives a simple logistics and market-access context for SME operations.",
+            "response": f"Use the current travel-time value of {fmt_num(metrics.get('travel_time_to_market'), 0, ' min')} in logistics and market-readiness planning.",
+        },
+        {
+            "metric_name": "fire_risk",
+            "indicator": "Fire exposure",
+            "value": fmt_num(metrics.get("fire_risk"), 1),
+            "meaning": f"The recent burned-area indicator is {fmt_num(metrics.get('fire_risk'), 1)}, which helps indicate whether there is some current fire-related signal in the landscape.",
+            "response": f"If the burned-area indicator remains near {fmt_num(metrics.get('fire_risk'), 1)}, review firebreaks and dry-season risk planning.",
+        },
     ]
+    for item in items:
+        item["status"] = classify_indicator(item["metric_name"], metrics.get(item["metric_name"]))
+        item["scale"] = status_scale_text(item["metric_name"])
+    return items
 
 
 def build_overall_narrative(metrics: Dict[str, Any]) -> List[str]:
@@ -708,10 +836,11 @@ def build_pdf_report(
         "The matrix below uses a portfolio of indicators rather than a single nature score. It is intended to help the reader understand current environmental conditions, what they mean, and what responses may be practical.",
         _STYLES["BodyBrand"],
     ))
-    matrix_rows = [["Indicator", "Current value", "What this means", "Suggested response"]]
+    matrix_rows = [["Indicator", "Current value", "Status", "What this means", "Suggested response", "Scale used"]]
     for row in build_tnfd_matrix(metrics):
-        matrix_rows.append(list(row))
-    story.append(_matrix_table(matrix_rows, (2.9 * cm, 2.4 * cm, 5.5 * cm, 6.2 * cm)))
+        matrix_rows.append([row["indicator"], row["value"], row["status"], row["meaning"], row["response"], row["scale"]])
+    story.append(_matrix_table(matrix_rows, (2.5 * cm, 1.9 * cm, 2.0 * cm, 4.0 * cm, 4.3 * cm, 3.1 * cm)))
+    story.append(Paragraph("Status is automatically interpreted relative to practical screening bands for each indicator.", _STYLES["MutedBrand"]))
 
     story.append(Paragraph("9. Automated risk flags", _STYLES["SectionBrand"]))
     story.append(Paragraph(
