@@ -282,6 +282,60 @@ def _derive_findings(metrics: Dict[str, Any]) -> List[str]:
         ]
     return findings[:3]
 
+
+
+def build_automated_risk_flags(metrics: Dict[str, Any]) -> List[Dict[str, str]]:
+    flags: List[Dict[str, str]] = []
+
+    def add_flag(level: str, title: str, current_value: str, meaning: str, action: str):
+        flags.append({
+            "Level": level,
+            "Flag": title,
+            "Current value": current_value,
+            "Why it matters": meaning,
+            "Suggested action": action,
+        })
+
+    try:
+        v = metrics.get("rain_anom_pct")
+        if v is not None and float(v) <= -15:
+            f = float(v)
+            add_flag("High", "Dry conditions", f"{f:.1f}%", f"Rainfall is {abs(f):.1f}% below the historical baseline, which may increase irrigation demand and crop stress.", f"Strengthen irrigation planning while rainfall remains {abs(f):.1f}% below baseline.")
+    except Exception:
+        pass
+    try:
+        v = metrics.get("lst_mean")
+        if v is not None and float(v) >= 30:
+            f = float(v)
+            add_flag("High", "Heat stress", f"{f:.1f} °C", f"Land surface temperature is {f:.1f} °C, which indicates elevated heat conditions for crops and protected-farming environments.", f"Review shading, ventilation, and irrigation scheduling while heat remains around {f:.1f} °C.")
+    except Exception:
+        pass
+    try:
+        v = metrics.get("soil_moisture")
+        if v is not None and float(v) < 0.15:
+            f = float(v)
+            add_flag("High", "Low soil moisture", f"{f:.3f}", f"Soil moisture is {f:.3f}, which suggests dry near-surface conditions and possible short-term crop water stress.", f"Check irrigation timing while soil moisture remains near {f:.3f}.")
+    except Exception:
+        pass
+    try:
+        v = metrics.get("flood_risk")
+        if v is not None and float(v) >= 0.5:
+            f = float(v)
+            add_flag("High", "Flood exposure", f"{f:.2f} m", f"Mapped flood depth is {f:.2f} m for a 1-in-100-year event, which may affect fields or infrastructure.", f"Review drainage and infrastructure placement where flood depth is around {f:.2f} m.")
+    except Exception:
+        pass
+    try:
+        v = metrics.get("greenhouse_pest_risk")
+        if v is not None and float(v) >= 70:
+            f = float(v)
+            add_flag("High", "Protected-farming pest pressure", f"{f:.0f}/100", f"The greenhouse pest-risk proxy is {f:.0f}/100, suggesting elevated pressure under current heat and humidity conditions.", f"Increase greenhouse inspection frequency while the pest-risk proxy remains {f:.0f}/100.")
+    except Exception:
+        pass
+
+    if not flags:
+        add_flag("Monitor", "No dominant automated flag", "Current conditions", "The current metric set does not show one dominant automated warning sign, but seasonal review remains important.", "Continue routine monitoring and update the assessment as conditions change.")
+    return flags
+
 def _image_block(story: List[Any], title: str, description: str, img_data: Any) -> None:
     bio = _normalize_image_input(img_data)
     if not bio:
@@ -306,87 +360,68 @@ def _chart_block(story: List[Any], title: str, description: str, chart_data: Any
     story.append(img)
     story.append(Spacer(1, 0.15 * cm))
 
+
 def build_tnfd_matrix(metrics: Dict[str, Any]) -> List[Tuple[str, str, str, str]]:
+    water = metrics.get("water_occ")
+    heat = metrics.get("lst_mean")
+    ndvi = metrics.get("ndvi_current")
+    rain = metrics.get("rain_anom_pct")
+    soil_m = metrics.get("soil_moisture")
+    et = metrics.get("evapotranspiration")
+    flood = metrics.get("flood_risk")
+    market = metrics.get("travel_time_to_market")
+
     return [
         (
             "Water availability",
-            fmt_num(metrics.get("water_occ"), 1),
-            "Low visible surface-water presence can increase dependence on irrigation, boreholes, or storage.",
-            "Review water storage, irrigation planning, and groundwater reliance."
+            fmt_num(water, 1),
+            f"Visible surface-water occurrence is {fmt_num(water, 1)}, which helps indicate whether the site may rely more heavily on irrigation, boreholes, or storage.",
+            f"Use the current water-occurrence value of {fmt_num(water, 1)} to guide storage and irrigation planning."
         ),
         (
             "Heat stress",
-            fmt_num(metrics.get("lst_mean"), 1, " °C"),
-            "Elevated temperature conditions can increase plant stress, evaporation, and cooling demand.",
-            "Monitor heat conditions and consider shading, ventilation, or cooling measures."
+            fmt_num(heat, 1, " °C"),
+            f"Land surface temperature is {fmt_num(heat, 1, ' °C')}, which indicates the current level of heat pressure on crops, workers, and protected-farming areas.",
+            f"If temperatures remain around {fmt_num(heat, 1, ' °C')}, strengthen shading, ventilation, and heat management."
         ),
         (
             "Vegetation condition",
-            fmt_num(metrics.get("ndvi_current"), 3),
-            "Vegetation condition gives a simple signal of cover strength and possible stress in the landscape.",
-            "Monitor vegetation condition together with soil moisture and field observations."
+            fmt_num(ndvi, 3),
+            f"Current NDVI is {fmt_num(ndvi, 3)}, which gives a simple signal of vegetation strength and possible plant stress.",
+            f"Use the current NDVI value of {fmt_num(ndvi, 3)} together with field checks and crop observations."
         ),
         (
             "Rainfall variability",
-            fmt_num(metrics.get("rain_anom_pct"), 1, "%"),
-            "Rainfall conditions influence irrigation demand, water certainty, and seasonal production planning.",
-            "Review seasonal planning and irrigation scheduling."
+            fmt_num(rain, 1, "%"),
+            f"Rainfall anomaly is {fmt_num(rain, 1, '%')}, which shows how current rainfall conditions compare with the historical baseline.",
+            f"Adjust irrigation and seasonal planning in response to the current rainfall anomaly of {fmt_num(rain, 1, '%')}."
         ),
         (
             "Soil moisture",
-            fmt_num(metrics.get("soil_moisture"), 3),
-            "Soil moisture helps indicate how much water is currently available near the surface.",
-            "Use with irrigation planning and field checks for crop stress."
+            fmt_num(soil_m, 3),
+            f"Soil moisture is {fmt_num(soil_m, 3)}, which indicates current near-surface wetness and short-term crop water conditions.",
+            f"Use the current soil-moisture value of {fmt_num(soil_m, 3)} to guide irrigation timing and field checks."
         ),
         (
             "Evapotranspiration",
-            fmt_num(metrics.get("evapotranspiration"), 1),
-            "Evapotranspiration helps indicate crop and soil water loss to the atmosphere.",
-            "Review crop water demand and irrigation timing."
+            fmt_num(et, 1),
+            f"Evapotranspiration is {fmt_num(et, 1)}, which indicates how much water crops may be losing to the atmosphere.",
+            f"If evapotranspiration remains near {fmt_num(et, 1)}, review crop water demand and irrigation supply."
         ),
         (
-            "Groundwater anomaly",
-            fmt_num(metrics.get("groundwater_anomaly"), 2),
-            "Groundwater anomaly gives a regional indication of terrestrial water storage conditions.",
-            "Use as a regional water-security signal when discussing boreholes or long-term irrigation."
-        ),
-        (
-            "Soil organic carbon",
-            fmt_num(metrics.get("soil_organic_carbon"), 1),
-            "Soil organic carbon is a useful proxy for soil fertility, structure, and water-holding support.",
-            "Use with soil testing and soil management planning."
-        ),
-        (
-            "Soil texture class",
-            fmt_num(metrics.get("soil_texture_class"), 1),
-            "Soil texture influences drainage, water-holding capacity, and crop suitability.",
-            "Use with farm-specific soil interpretation and crop planning."
-        ),
-        (
-            "Flood risk",
-            fmt_num(metrics.get("flood_risk"), 2),
-            "Flood hazard helps indicate whether parts of the site may be exposed to inundation.",
-            "Review drainage, site layout, and sensitive infrastructure placement."
-        ),
-        (
-            "Fire risk",
-            fmt_num(metrics.get("fire_risk"), 1),
-            "Burned-area history helps indicate whether the surrounding landscape has shown fire activity.",
-            "Review seasonal fire preparedness where relevant."
+            "Flood hazard",
+            fmt_num(flood, 2, " m"),
+            f"Mapped flood depth is {fmt_num(flood, 2, ' m')} for a 1-in-100-year event, which helps indicate possible flood exposure.",
+            f"Use the current flood-depth value of {fmt_num(flood, 2, ' m')} in drainage and infrastructure planning."
         ),
         (
             "Market access",
-            fmt_num(metrics.get("travel_time_to_market"), 1, " min"),
-            "Travel time to a major centre can affect logistics, market access, and operating efficiency.",
-            "Use with transport and off-take planning for SME support."
-        ),
-        (
-            "Land condition",
-            fmt_num(metrics.get("forest_loss_pct"), 1, "%"),
-            "Landscape change can affect ecosystem stability, local resilience, and longer-term production conditions.",
-            "Monitor surrounding land-use change and maintain ecological buffers where possible."
+            fmt_num(market, 0, " min"),
+            f"Estimated travel time to market is {fmt_num(market, 0, ' min')}, which gives a simple logistics and market-access context for SME operations.",
+            f"Use the current travel-time value of {fmt_num(market, 0, ' min')} in logistics and market-readiness planning."
         ),
     ]
+
 
 def build_overall_narrative(metrics: Dict[str, Any]) -> List[str]:
     statements: List[str] = []
@@ -532,14 +567,6 @@ def build_pdf_report(
         ("Built-up area", fmt_num(metrics.get("built_pct"), 1, "%")),
         ("Surface-water occurrence", fmt_num(metrics.get("water_occ"), 1)),
         ("Forest loss", fmt_num(metrics.get("forest_loss_pct"), 1, "%")),
-        ("Soil moisture", fmt_num(metrics.get("soil_moisture"), 3)),
-        ("Evapotranspiration", fmt_num(metrics.get("evapotranspiration"), 1)),
-        ("Groundwater anomaly", fmt_num(metrics.get("groundwater_anomaly"), 2)),
-        ("Soil organic carbon", fmt_num(metrics.get("soil_organic_carbon"), 1)),
-        ("Soil texture class", fmt_num(metrics.get("soil_texture_class"), 1)),
-        ("Flood risk", fmt_num(metrics.get("flood_risk"), 2)),
-        ("Fire risk", fmt_num(metrics.get("fire_risk"), 1)),
-        ("Travel time to market", fmt_num(metrics.get("travel_time_to_market"), 1, " min")),
     ], (7.2 * cm, 9.8 * cm)))
     _section_rule(story)
 
@@ -575,36 +602,6 @@ def build_pdf_report(
             fmt_num(metrics.get("water_occ"), 1),
             "Shows whether visible water is limited or more available in the surrounding context.",
             "Review storage, borehole reliance, and water planning.",
-        ],
-        [
-            "Soil moisture",
-            fmt_num(metrics.get("soil_moisture"), 3),
-            "Shows whether the near-surface soil appears relatively dry or moist at coarse resolution.",
-            "Use with irrigation scheduling and field verification.",
-        ],
-        [
-            "Evapotranspiration",
-            fmt_num(metrics.get("evapotranspiration"), 1),
-            "Shows how much water vegetation and soil are losing to the atmosphere.",
-            "Use as a crop-water-demand indicator.",
-        ],
-        [
-            "Groundwater anomaly",
-            fmt_num(metrics.get("groundwater_anomaly"), 2),
-            "Shows whether broader terrestrial water storage is below or above its reference condition.",
-            "Use when considering long-term irrigation and borehole resilience.",
-        ],
-        [
-            "Flood risk",
-            fmt_num(metrics.get("flood_risk"), 2),
-            "Shows whether parts of the site may be more exposed to river flood hazard.",
-            "Use for drainage and infrastructure planning.",
-        ],
-        [
-            "Travel time to market",
-            fmt_num(metrics.get("travel_time_to_market"), 1, " min"),
-            "Shows approximate travel time to a major centre and helps indicate logistics pressure.",
-            "Use for SME support, logistics planning, and market access discussions.",
         ],
     ]
     story.append(_matrix_table(indicator_rows, (3.0 * cm, 2.4 * cm, 5.4 * cm, 6.0 * cm)))
@@ -691,9 +688,19 @@ def build_pdf_report(
     for row in build_tnfd_matrix(metrics):
         matrix_rows.append(list(row))
     story.append(_matrix_table(matrix_rows, (2.9 * cm, 2.4 * cm, 5.5 * cm, 6.2 * cm)))
+
+    story.append(Paragraph("9. Automated risk flags", _STYLES["SectionBrand"]))
+    story.append(Paragraph(
+        "These automated flags highlight the most immediate conditions that may need management attention. They are intended as practical screening prompts rather than final specialist conclusions.",
+        _STYLES["BodyBrand"],
+    ))
+    risk_flag_rows = [["Level", "Flag", "Current value", "Why it matters", "Suggested action"]]
+    for row in build_automated_risk_flags(metrics):
+        risk_flag_rows.append([row["Level"], row["Flag"], row["Current value"], row["Why it matters"], row["Suggested action"]])
+    story.append(_matrix_table(risk_flag_rows, (1.8 * cm, 3.0 * cm, 2.4 * cm, 4.8 * cm, 5.0 * cm)))
     _section_rule(story)
 
-    story.append(Paragraph("9. Greenhouse and production conditions", _STYLES["SectionBrand"]))
+    story.append(Paragraph("10. Greenhouse and production conditions", _STYLES["SectionBrand"]))
     story.append(Paragraph(
         "This section summarises observed conditions related to protected and open-field production environments. Even where protected-farming structures are not clearly detected, the surrounding temperature, rainfall, vegetation, and water signals can still be used to guide greenhouse-style management decisions such as ventilation, shading, irrigation planning, and crop inspection.",
         _STYLES["BodyBrand"],
@@ -711,12 +718,12 @@ def build_pdf_report(
     _add_bullets(story, build_greenhouse_recommendations(metrics))
     _section_rule(story)
 
-    story.append(Paragraph("10. Overall environmental interpretation", _STYLES["SectionBrand"]))
+    story.append(Paragraph("11. Overall environmental interpretation", _STYLES["SectionBrand"]))
     for statement in build_overall_narrative(metrics):
         story.append(Paragraph(statement, _STYLES["BodyBrand"]))
     _section_rule(story)
 
-    story.append(Paragraph("11. Recommended actions", _STYLES["SectionBrand"]))
+    story.append(Paragraph("12. Recommended actions", _STYLES["SectionBrand"]))
     story.append(Paragraph(
         "The actions below translate the observed environmental conditions into practical next steps for operations, incubation support, and resilience planning.",
         _STYLES["BodyBrand"],
@@ -724,7 +731,7 @@ def build_pdf_report(
     _add_bullets(story, risk.get("recs") or [])
     _section_rule(story)
 
-    story.append(Paragraph("12. Monitoring and review frequency", _STYLES["SectionBrand"]))
+    story.append(Paragraph("13. Monitoring and review frequency", _STYLES["SectionBrand"]))
     _add_bullets(story, [
         "Review this assessment at the start of each planting season.",
         "Review again after major rainfall variability, drought signals, or unusual heat conditions.",
@@ -733,7 +740,7 @@ def build_pdf_report(
     ])
     _section_rule(story)
 
-    story.append(Paragraph("13. Bankability and SME support perspective", _STYLES["SectionBrand"]))
+    story.append(Paragraph("14. Bankability and SME support perspective", _STYLES["SectionBrand"]))
     _add_bullets(story, [
         "Use water reliability, production reliability, and heat conditions to support conversations about climate and operational stability.",
         "Use protected-farming and open-field differences to show that the business understands where different production risks sit.",
@@ -742,7 +749,7 @@ def build_pdf_report(
     ])
     _section_rule(story)
 
-    story.append(Paragraph("14. Image outputs", _STYLES["SectionBrand"]))
+    story.append(Paragraph("15. Image outputs", _STYLES["SectionBrand"]))
     story.append(Paragraph(
         "Each image below is paired with a short explanation so that non-technical readers can understand what it shows and why it matters.",
         _STYLES["BodyBrand"],
@@ -757,7 +764,7 @@ def build_pdf_report(
 
     story.append(PageBreak())
 
-    story.append(Paragraph("15. Historical plots and current charts", _STYLES["SectionBrand"]))
+    story.append(Paragraph("16. Historical plots and current charts", _STYLES["SectionBrand"]))
     story.append(Paragraph(
         "The plots below help explain trends over time. Each one is described in plain language so the reader can understand what changes may matter for farm decisions.",
         _STYLES["BodyBrand"],
@@ -771,7 +778,7 @@ def build_pdf_report(
         )
     _section_rule(story)
 
-    story.append(Paragraph("16. Detailed metrics appendix", _STYLES["SectionBrand"]))
+    story.append(Paragraph("17. Detailed metrics appendix", _STYLES["SectionBrand"]))
     appendix_rows = sorted((str(k), _safe_text(v)) for k, v in metrics.items())
     story.append(_metric_table(appendix_rows, (6.0 * cm, 11.0 * cm)))
 
