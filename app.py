@@ -20,6 +20,9 @@ from utils.ee_helpers import (
     ndvi_with_polygon,
     landcover_with_polygon,
     forest_loss_with_polygon,
+    flood_risk_with_polygon,
+    soil_condition_with_polygon,
+    heat_stress_with_polygon,
     vegetation_change_with_polygon,
     image_thumb_url,
     landsat_annual_ndvi_collection,
@@ -1188,12 +1191,18 @@ if run:
         ndvi_img = ndvi_with_polygon(ee_geom, LAST_FULL_YEAR)
         landcover_img = landcover_with_polygon(ee_geom)
         forest_loss_img = forest_loss_with_polygon(ee_geom)
+        flood_risk_img = flood_risk_with_polygon(ee_geom)
+        soil_condition_img = soil_condition_with_polygon(ee_geom)
+        heat_stress_img = heat_stress_with_polygon(ee_geom, int(hist_end))
         veg_change_img = vegetation_change_with_polygon(ee_geom, int(hist_start), int(hist_end))
 
         satellite_url = image_thumb_url(satellite_img, ee_geom, 2200)
         ndvi_url = image_thumb_url(ndvi_img, ee_geom, 1400)
         landcover_url = image_thumb_url(landcover_img, ee_geom, 1400)
         forest_loss_url = image_thumb_url(forest_loss_img, ee_geom, 1400)
+        flood_risk_url = image_thumb_url(flood_risk_img, ee_geom, 1400)
+        soil_condition_url = image_thumb_url(soil_condition_img, ee_geom, 1400)
+        heat_stress_url = image_thumb_url(heat_stress_img, ee_geom, 1400)
         veg_change_url = image_thumb_url(veg_change_img, ee_geom, 1400)
 
         ndvi_hist_df = prep_year_df(
@@ -1296,6 +1305,21 @@ if run:
                 "description": "This image highlights where forest loss has been detected in or around the selected area.",
                 "bytes": fetch_pdf_ee_image_bytes(forest_loss_img, ee_geom, dimensions=850),
             },
+            {
+                "title": "Flood risk map with polygon",
+                "description": f"This image shows mapped 1-in-100-year flood depth. The current mean flood-risk value is {fmt_num(metrics.get('flood_risk'), 2, ' m')}. Darker blues indicate deeper potential flooding.",
+                "bytes": fetch_pdf_ee_image_bytes(flood_risk_img, ee_geom, dimensions=850),
+            },
+            {
+                "title": "Soil condition map with polygon",
+                "description": f"This image uses soil organic carbon as a simple soil-condition layer. The current soil organic carbon value is {fmt_num(metrics.get('soil_organic_carbon'), 1)} and the topsoil texture class is {metrics.get('soil_texture_class')}.",
+                "bytes": fetch_pdf_ee_image_bytes(soil_condition_img, ee_geom, dimensions=850),
+            },
+            {
+                "title": "Heat stress map with polygon",
+                "description": f"This image shows average land surface temperature. The current heat-context value is {fmt_num(metrics.get('lst_mean'), 1, ' °C')}; warmer colours indicate hotter surfaces.",
+                "bytes": fetch_pdf_ee_image_bytes(heat_stress_img, ee_geom, dimensions=850),
+            },
         ]
 
         automated_flags = build_automated_risk_flags(metrics)
@@ -1329,6 +1353,9 @@ if run:
             "ndvi_url": ndvi_url,
             "landcover_url": landcover_url,
             "forest_loss_url": forest_loss_url,
+            "flood_risk_url": flood_risk_url,
+            "soil_condition_url": soil_condition_url,
+            "heat_stress_url": heat_stress_url,
             "veg_change_url": veg_change_url,
             "ndvi_hist_df": ndvi_hist_df,
             "rain_hist_df": rain_hist_df,
@@ -1363,6 +1390,9 @@ if results is not None:
     ndvi_url = results["ndvi_url"]
     landcover_url = results["landcover_url"]
     forest_loss_url = results["forest_loss_url"]
+    flood_risk_url = results["flood_risk_url"]
+    soil_condition_url = results["soil_condition_url"]
+    heat_stress_url = results["heat_stress_url"]
     veg_change_url = results["veg_change_url"]
     ndvi_hist_df = results["ndvi_hist_df"]
     rain_hist_df = results["rain_hist_df"]
@@ -1547,12 +1577,15 @@ if results is not None:
             st.image(satellite_url, caption="Satellite image with polygon", width='stretch')
             st.image(ndvi_url, caption="NDVI image with polygon", width='stretch')
             st.image(veg_change_url, caption="Vegetation change map with polygon", width='stretch')
+            st.image(flood_risk_url, caption=f"Flood risk map with polygon — current flood-risk value: {fmt_num(metrics.get('flood_risk'), 2, ' m')}", width='stretch')
         with img2:
             st.image(landcover_url, caption="Land-cover image with polygon", width='stretch')
             st.image(forest_loss_url, caption="Forest loss map with polygon", width='stretch')
+            st.image(soil_condition_url, caption=f"Soil condition map with polygon — soil organic carbon: {fmt_num(metrics.get('soil_organic_carbon'), 1)}, topsoil texture class: {metrics.get('soil_texture_class')}", width='stretch')
+            st.image(heat_stress_url, caption=f"Heat stress map with polygon — current land surface temperature: {fmt_num(metrics.get('lst_mean'), 1, ' °C')}", width='stretch')
 
     with tab7:
-        st.markdown("## Historical plots")
+        st.markdown("## Historical plots and additional evidence")
 
         if not ndvi_hist_df.empty:
             fig = px.line(ndvi_hist_df, x="year", y="value", title="Historical NDVI (Landsat)")
@@ -1646,4 +1679,3 @@ if results is not None:
         if not lc_df.empty:
             fig = build_landcover_bar(lc_df)
             st.plotly_chart(fig, width='stretch', key="detail_landcover_bar")
-
