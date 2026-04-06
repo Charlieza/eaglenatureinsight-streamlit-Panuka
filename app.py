@@ -1389,11 +1389,11 @@ if results is not None:
     satellite_url = results["satellite_url"]
     ndvi_url = results["ndvi_url"]
     landcover_url = results["landcover_url"]
-    forest_loss_url = results["forest_loss_url"]
-    flood_risk_url = results["flood_risk_url"]
-    soil_condition_url = results["soil_condition_url"]
-    heat_stress_url = results["heat_stress_url"]
-    veg_change_url = results["veg_change_url"]
+    forest_loss_url = results.get("forest_loss_url")
+    flood_risk_url = results.get("flood_risk_url")
+    soil_condition_url = results.get("soil_condition_url")
+    heat_stress_url = results.get("heat_stress_url")
+    veg_change_url = results.get("veg_change_url")
     ndvi_hist_df = results["ndvi_hist_df"]
     rain_hist_df = results["rain_hist_df"]
     lst_hist_df = results["lst_hist_df"]
@@ -1404,6 +1404,9 @@ if results is not None:
     hist_end = results.get("hist_end")
 
     overview = build_overview_content(preset, category, metrics, risk)
+
+    if any(k not in results for k in ["flood_risk_url", "soil_condition_url", "heat_stress_url"]):
+        st.info("This result was generated before the new flood, soil, and heat maps were added. Run the assessment again to populate the new image products.")
     evaluate = build_evaluate_content(category, metrics)
 
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
@@ -1574,15 +1577,23 @@ if results is not None:
 
         img1, img2 = st.columns(2)
         with img1:
-            st.image(satellite_url, caption="Satellite image with polygon", width='stretch')
-            st.image(ndvi_url, caption="NDVI image with polygon", width='stretch')
-            st.image(veg_change_url, caption="Vegetation change map with polygon", width='stretch')
-            st.image(flood_risk_url, caption=f"Flood risk map with polygon — current flood-risk value: {fmt_num(metrics.get('flood_risk'), 2, ' m')}", width='stretch')
+            if satellite_url:
+                st.image(satellite_url, caption="Satellite image with polygon", width='stretch')
+            if ndvi_url:
+                st.image(ndvi_url, caption="NDVI image with polygon", width='stretch')
+            if veg_change_url:
+                st.image(veg_change_url, caption="Vegetation change map with polygon", width='stretch')
+            if flood_risk_url:
+                st.image(flood_risk_url, caption=f"Flood risk map with polygon — current flood-risk value: {fmt_num(metrics.get('flood_risk'), 2, ' m')}", width='stretch')
         with img2:
-            st.image(landcover_url, caption="Land-cover image with polygon", width='stretch')
-            st.image(forest_loss_url, caption="Forest loss map with polygon", width='stretch')
-            st.image(soil_condition_url, caption=f"Soil condition map with polygon — soil organic carbon: {fmt_num(metrics.get('soil_organic_carbon'), 1)}, topsoil texture class: {metrics.get('soil_texture_class')}", width='stretch')
-            st.image(heat_stress_url, caption=f"Heat stress map with polygon — current land surface temperature: {fmt_num(metrics.get('lst_mean'), 1, ' °C')}", width='stretch')
+            if landcover_url:
+                st.image(landcover_url, caption="Land-cover image with polygon", width='stretch')
+            if forest_loss_url:
+                st.image(forest_loss_url, caption="Forest loss map with polygon", width='stretch')
+            if soil_condition_url:
+                st.image(soil_condition_url, caption=f"Soil condition map with polygon — soil organic carbon: {fmt_num(metrics.get('soil_organic_carbon'), 1)}, topsoil texture class: {metrics.get('soil_texture_class')}", width='stretch')
+            if heat_stress_url:
+                st.image(heat_stress_url, caption=f"Heat stress map with polygon — current land surface temperature: {fmt_num(metrics.get('lst_mean'), 1, ' °C')}", width='stretch')
 
     with tab7:
         st.markdown("## Historical plots and additional evidence")
@@ -1679,3 +1690,4 @@ if results is not None:
         if not lc_df.empty:
             fig = build_landcover_bar(lc_df)
             st.plotly_chart(fig, width='stretch', key="detail_landcover_bar")
+
