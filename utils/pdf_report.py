@@ -576,32 +576,56 @@ def build_pdf_report(
         [
             "Rainfall anomaly",
             fmt_num(metrics.get("rain_anom_pct"), 1, "%"),
-            "Shows whether recent rainfall is below, near, or above the longer-term baseline.",
-            "Review irrigation scheduling and seasonal planning.",
+            f"Rainfall anomaly is {fmt_num(metrics.get('rain_anom_pct'), 1, '%')}, showing how current rainfall compares with the longer-term baseline.",
+            f"Adjust irrigation scheduling and seasonal planning in response to the current rainfall anomaly of {fmt_num(metrics.get('rain_anom_pct'), 1, '%')}.",
         ],
         [
             "Vegetation condition",
             fmt_num(metrics.get("ndvi_current"), 3),
-            "Shows whether vegetation cover appears weak, moderate, or relatively strong.",
-            "Use together with field checks and crop observations.",
+            f"Current NDVI is {fmt_num(metrics.get('ndvi_current'), 3)}, which gives a simple signal of vegetation strength and possible plant stress.",
+            f"Use the current NDVI value of {fmt_num(metrics.get('ndvi_current'), 3)} together with field checks and crop observations.",
         ],
         [
             "Vegetation trend",
             fmt_num(metrics.get("ndvi_trend"), 3),
-            "Shows whether vegetation is improving, stable, or weakening over time.",
-            "Monitor soil moisture, crop stress, and local management conditions.",
+            f"Vegetation trend is {fmt_num(metrics.get('ndvi_trend'), 3)}, showing whether vegetation is improving, stable, or weakening over time.",
+            f"Monitor soil moisture, crop stress, and local management conditions while the vegetation trend remains {fmt_num(metrics.get('ndvi_trend'), 3)}.",
         ],
         [
             "Land surface temperature",
             fmt_num(metrics.get("lst_mean"), 1, " °C"),
-            "Shows whether heat conditions may be adding stress to crops, workers, or infrastructure.",
-            "Review shading, cooling, and heat-management measures where needed.",
+            f"Land surface temperature is {fmt_num(metrics.get('lst_mean'), 1, ' °C')}, indicating the current level of heat pressure on crops, workers, and infrastructure.",
+            f"Review shading, cooling, and heat-management measures if temperatures remain around {fmt_num(metrics.get('lst_mean'), 1, ' °C')}.",
         ],
         [
             "Surface-water occurrence",
             fmt_num(metrics.get("water_occ"), 1),
-            "Shows whether visible water is limited or more available in the surrounding context.",
-            "Review storage, borehole reliance, and water planning.",
+            f"Surface-water occurrence is {fmt_num(metrics.get('water_occ'), 1)}, which helps indicate whether visible water is limited or more available in the surrounding context.",
+            f"Use the current water-occurrence value of {fmt_num(metrics.get('water_occ'), 1)} in storage, borehole, and water-planning decisions.",
+        ],
+        [
+            "Soil moisture",
+            fmt_num(metrics.get("soil_moisture"), 3),
+            f"Soil moisture is {fmt_num(metrics.get('soil_moisture'), 3)}, which indicates current near-surface wetness and short-term crop water conditions.",
+            f"Use the current soil-moisture value of {fmt_num(metrics.get('soil_moisture'), 3)} to guide irrigation timing and field checks.",
+        ],
+        [
+            "Evapotranspiration",
+            fmt_num(metrics.get("evapotranspiration"), 1),
+            f"Evapotranspiration is {fmt_num(metrics.get('evapotranspiration'), 1)}, which indicates how much water crops may be losing to the atmosphere.",
+            f"If evapotranspiration remains near {fmt_num(metrics.get('evapotranspiration'), 1)}, review crop water demand and irrigation supply.",
+        ],
+        [
+            "Flood risk",
+            fmt_num(metrics.get("flood_risk"), 2, " m"),
+            f"Mapped flood depth is {fmt_num(metrics.get('flood_risk'), 2, ' m')} for a 1-in-100-year event, which helps indicate possible flood exposure.",
+            f"Use the current flood-depth value of {fmt_num(metrics.get('flood_risk'), 2, ' m')} in drainage and infrastructure planning.",
+        ],
+        [
+            "Travel time to market",
+            fmt_num(metrics.get("travel_time_to_market"), 0, " min"),
+            f"Estimated travel time to market is {fmt_num(metrics.get('travel_time_to_market'), 0, ' min')}, which gives a simple logistics and market-access context for SME operations.",
+            f"Use the current travel-time value of {fmt_num(metrics.get('travel_time_to_market'), 0, ' min')} in logistics and market-readiness planning.",
         ],
     ]
     story.append(_matrix_table(indicator_rows, (3.0 * cm, 2.4 * cm, 5.4 * cm, 6.0 * cm)))
@@ -700,7 +724,20 @@ def build_pdf_report(
     story.append(_matrix_table(risk_flag_rows, (1.8 * cm, 3.0 * cm, 2.4 * cm, 4.8 * cm, 5.0 * cm)))
     _section_rule(story)
 
-    story.append(Paragraph("10. Greenhouse and production conditions", _STYLES["SectionBrand"]))
+    story.append(Paragraph("10. Additional operational indicators", _STYLES["SectionBrand"]))
+    story.append(_metric_table([
+        ("Soil moisture", f"{fmt_num(metrics.get('soil_moisture'), 3)} — Near-surface moisture condition used to support irrigation timing and crop-stress interpretation."),
+        ("Evapotranspiration", f"{fmt_num(metrics.get('evapotranspiration'), 1)} — Current crop water-demand proxy used to support irrigation and water-balance interpretation."),
+        ("Groundwater anomaly", f"{fmt_num(metrics.get('groundwater_anomaly'), 1)} — Broader terrestrial water-storage signal used to support medium-term water-security interpretation."),
+        ("Soil organic carbon", f"{fmt_num(metrics.get('soil_organic_carbon'), 1)} — Simple soil-quality indicator used to support soil-condition interpretation."),
+        ("Soil texture class", f"{_safe_text(metrics.get('soil_texture_class'))} — Soil texture influences drainage, root conditions, and water-holding behaviour."),
+        ("Flood risk", f"{fmt_num(metrics.get('flood_risk'), 2, ' m')} — Mapped flood-depth proxy for a 1-in-100-year event."),
+        ("Fire risk", f"{fmt_num(metrics.get('fire_risk'), 1)} — Recent burned-area signal in the production landscape."),
+        ("Travel time to market", f"{fmt_num(metrics.get('travel_time_to_market'), 0, ' min')} — Simple logistics and market-access context."),
+    ], (5.2 * cm, 11.8 * cm)))
+    _section_rule(story)
+
+    story.append(Paragraph("11. Greenhouse and production conditions", _STYLES["SectionBrand"]))
     story.append(Paragraph(
         "This section summarises observed conditions related to protected and open-field production environments. Even where protected-farming structures are not clearly detected, the surrounding temperature, rainfall, vegetation, and water signals can still be used to guide greenhouse-style management decisions such as ventilation, shading, irrigation planning, and crop inspection.",
         _STYLES["BodyBrand"],
@@ -718,12 +755,12 @@ def build_pdf_report(
     _add_bullets(story, build_greenhouse_recommendations(metrics))
     _section_rule(story)
 
-    story.append(Paragraph("11. Overall environmental interpretation", _STYLES["SectionBrand"]))
+    story.append(Paragraph("12. Overall environmental interpretation", _STYLES["SectionBrand"]))
     for statement in build_overall_narrative(metrics):
         story.append(Paragraph(statement, _STYLES["BodyBrand"]))
     _section_rule(story)
 
-    story.append(Paragraph("12. Recommended actions", _STYLES["SectionBrand"]))
+    story.append(Paragraph("13. Recommended actions", _STYLES["SectionBrand"]))
     story.append(Paragraph(
         "The actions below translate the observed environmental conditions into practical next steps for operations, incubation support, and resilience planning.",
         _STYLES["BodyBrand"],
@@ -731,7 +768,7 @@ def build_pdf_report(
     _add_bullets(story, risk.get("recs") or [])
     _section_rule(story)
 
-    story.append(Paragraph("13. Monitoring and review frequency", _STYLES["SectionBrand"]))
+    story.append(Paragraph("14. Monitoring and review frequency", _STYLES["SectionBrand"]))
     _add_bullets(story, [
         "Review this assessment at the start of each planting season.",
         "Review again after major rainfall variability, drought signals, or unusual heat conditions.",
@@ -740,7 +777,7 @@ def build_pdf_report(
     ])
     _section_rule(story)
 
-    story.append(Paragraph("14. Bankability and SME support perspective", _STYLES["SectionBrand"]))
+    story.append(Paragraph("15. Bankability and SME support perspective", _STYLES["SectionBrand"]))
     _add_bullets(story, [
         "Use water reliability, production reliability, and heat conditions to support conversations about climate and operational stability.",
         "Use protected-farming and open-field differences to show that the business understands where different production risks sit.",
@@ -749,7 +786,7 @@ def build_pdf_report(
     ])
     _section_rule(story)
 
-    story.append(Paragraph("15. Image outputs", _STYLES["SectionBrand"]))
+    story.append(Paragraph("16. Image outputs", _STYLES["SectionBrand"]))
     story.append(Paragraph(
         "Each image below is paired with a short explanation so that non-technical readers can understand what it shows and why it matters.",
         _STYLES["BodyBrand"],
@@ -764,7 +801,7 @@ def build_pdf_report(
 
     story.append(PageBreak())
 
-    story.append(Paragraph("16. Historical plots and current charts", _STYLES["SectionBrand"]))
+    story.append(Paragraph("17. Historical plots and current charts", _STYLES["SectionBrand"]))
     story.append(Paragraph(
         "The plots below help explain trends over time. Each one is described in plain language so the reader can understand what changes may matter for farm decisions.",
         _STYLES["BodyBrand"],
@@ -778,7 +815,7 @@ def build_pdf_report(
         )
     _section_rule(story)
 
-    story.append(Paragraph("17. Detailed metrics appendix", _STYLES["SectionBrand"]))
+    story.append(Paragraph("18. Detailed metrics appendix", _STYLES["SectionBrand"]))
     appendix_rows = sorted((str(k), _safe_text(v)) for k, v in metrics.items())
     story.append(_metric_table(appendix_rows, (6.0 * cm, 11.0 * cm)))
 
