@@ -203,7 +203,7 @@ def flood_risk_with_polygon(geom: ee.Geometry) -> ee.Image:
 def soil_condition_with_polygon(geom: ee.Geometry) -> ee.Image:
     ds = get_datasets()
     # Use soil organic carbon as a simple soil-condition layer.
-    image = ds["SOIL_OC"].select(ds["SOIL_OC"].bandNames().get(0))
+    image = ds["SOIL_OC"].select([ee.String(ds["SOIL_OC"].bandNames().get(0))])
     vis = image.visualize(
         min=0,
         max=80,
