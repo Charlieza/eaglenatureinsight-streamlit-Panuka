@@ -45,7 +45,7 @@ def get_datasets():
     lc09 = ee.ImageCollection("LANDSAT/LC09/C02/T1_L2")
 
     modis_et = ee.ImageCollection("MODIS/061/MOD16A2GF")
-    smap_l4 = ee.ImageCollection("NASA/SMAP/SPL4SMGP/007")
+    smap_l4 = ee.ImageCollection("NASA/SMAP/SPL4SMGP/008")
     grace = ee.ImageCollection("NASA/GRACE/MASS_GRIDS_V04/LAND")
     soil_organic_carbon = ee.Image("OpenLandMap/SOL/SOL_ORGANIC-CARBON_USDA-6A1C_M/v02")
     soil_texture = ee.Image("OpenLandMap/SOL/SOL_TEXTURE-CLASS_USDA-TT_M/v02")
@@ -662,14 +662,14 @@ def flood_risk_mean(geom: ee.Geometry):
 def fire_risk_mean(geom: ee.Geometry, hist_end: int):
     ds = get_datasets()
     start_year = max(2001, hist_end - 4)
-    image = (
+    burned_coll = (
         ds["FIRE_BURNED"]
         .filterBounds(geom)
         .filterDate(f"{start_year}-01-01", f"{hist_end}-12-31")
         .select("BurnDate")
-        .gt(0)
-        .sum()
+        .map(lambda img: img.gt(0))
     )
+    image = burned_coll.sum()
     return _reduce_mean_first_band(image, geom, 500)
 
 
