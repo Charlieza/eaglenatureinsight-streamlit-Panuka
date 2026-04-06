@@ -38,15 +38,12 @@ BRAND = {
 ABBREVIATIONS = {
     "AOI": "Area of interest",
     "CHIRPS": "Climate Hazards Group InfraRed Precipitation with Station data",
-    "EE": "Google Earth Engine",
-    "GHG": "Greenhouse gas",
     "ISSB": "International Sustainability Standards Board",
     "JRC": "Joint Research Centre",
     "LEAP": "Locate, Evaluate, Assess and Prepare",
     "LST": "Land surface temperature",
     "MODIS": "Moderate Resolution Imaging Spectroradiometer",
     "NDVI": "Normalized Difference Vegetation Index",
-    "PDF": "Portable Document Format",
     "SME": "Small and medium-sized enterprise",
     "TNFD": "Taskforce on Nature-related Financial Disclosures",
 }
@@ -129,79 +126,6 @@ def _page_number(canvas, doc):
     canvas.drawRightString(PAGE_WIDTH - 1.6 * cm, 1.2 * cm, f"Page {doc.page}")
     canvas.restoreState()
 
-def _water_exposure(metrics: Dict[str, Any]) -> str:
-    val = metrics.get("water_occ")
-    if val is None:
-        return "Unknown"
-    try:
-        v = float(val)
-    except Exception:
-        return "Unknown"
-    if v <= 5:
-        return "High"
-    if v <= 15:
-        return "Moderate"
-    return "Low"
-
-def _heat_exposure(metrics: Dict[str, Any]) -> str:
-    val = metrics.get("lst_mean")
-    if val is None:
-        return "Unknown"
-    try:
-        v = float(val)
-    except Exception:
-        return "Unknown"
-    if v >= 30:
-        return "High"
-    if v >= 28:
-        return "Moderate"
-    return "Low"
-
-def _vegetation_exposure(metrics: Dict[str, Any]) -> str:
-    ndvi = metrics.get("ndvi_current")
-    trend = metrics.get("ndvi_trend")
-    try:
-        nd = None if ndvi is None else float(ndvi)
-        tr = None if trend is None else float(trend)
-    except Exception:
-        return "Unknown"
-    if (nd is not None and nd < 0.25) or (tr is not None and tr < -0.03):
-        return "High"
-    if (nd is not None and nd < 0.45) or (tr is not None and tr < -0.01):
-        return "Moderate"
-    if nd is None and tr is None:
-        return "Unknown"
-    return "Low"
-
-def _derive_findings(metrics: Dict[str, Any], risk: Dict[str, Any]) -> List[str]:
-    findings: List[str] = []
-    try:
-        ra = metrics.get("rain_anom_pct")
-        if ra is not None and float(ra) < -10:
-            findings.append("Recent rainfall is below the long-term baseline, which may increase irrigation pressure and water uncertainty.")
-    except Exception:
-        pass
-    try:
-        nd = metrics.get("ndvi_trend")
-        if nd is not None and float(nd) < -0.03:
-            findings.append("Vegetation is weakening over time, which can point to stress in the landscape or production system.")
-    except Exception:
-        pass
-    try:
-        gh = metrics.get("greenhouse_pct")
-        if gh is not None and float(gh) > 0:
-            findings.append("Possible protected farming structures were detected, so greenhouse conditions should be read alongside open-field conditions.")
-    except Exception:
-        pass
-    if not findings:
-        flags = risk.get("flags") or []
-        findings = list(flags[:3]) if flags else [
-            "The site should be read as a practical farm and SME decision-support assessment rather than a technical output only.",
-            "Water, heat, vegetation, and land-cover conditions should be read together.",
-            "The LEAP structure is used to turn satellite indicators into plain-language business meaning.",
-        ]
-    return findings[:3]
-
 def _image_block(story: List[Any], title: str, description: str, img_data: Any) -> None:
     story.append(Paragraph(title, _STYLES["SmallBrand"]))
     story.append(Paragraph(description, _STYLES["MutedBrand"]))
@@ -227,6 +151,61 @@ def _chart_block(story: List[Any], title: str, description: str, chart_data: Any
             return
     story.append(Paragraph("Plot not available in this export.", _STYLES["MutedBrand"]))
     story.append(Spacer(1, 0.15 * cm))
+
+def _bucket_num(value: Any) -> Optional[float]:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+def _level(value: Any, low_bad: bool, moderate: float, high: float) -> str:
+    v = _bucket_num(value)
+    if v is None:
+        return "Not available"
+    if low_bad:
+        if v <= moderate:
+            return "High"
+        if v <= high:
+            return "Moderate"
+        return "Low"
+    if v >= high:
+        return "High"
+    if v >= moderate:
+        return "Moderate"
+    return "Low"
+
+def _greenhouse_recommendations(metrics: Dict[str, Any]) -> List[str]:
+    recs: List[str] = []
+    gh_pct = _bucket_num(metrics.get("greenhouse_pct"))
+    lst = _bucket_num(metrics.get("lst_mean"))
+    rain = _bucket_num(metrics.get("rain_anom_pct"))
+    ndvi = _bucket_num(metrics.get("ndvi_current"))
+    ndvi_trend = _bucket_num(metrics.get("ndvi_trend"))
+    water = _bucket_num(metrics.get("water_occ"))
+
+    if gh_pct is not None and gh_pct > 0:
+        recs.append(f"Protected-farming structures appear to cover about {gh_pct:.1f}% of the assessed area, so greenhouse conditions should be reviewed alongside open-field conditions.")
+    if lst is not None:
+        if lst >= 30:
+            recs.append(f"Average land surface temperature is {lst:.1f}°C, which suggests elevated heat pressure. Review greenhouse ventilation, shading, and cooling measures.")
+        elif lst >= 28:
+            recs.append(f"Average land surface temperature is {lst:.1f}°C, which suggests moderate heat pressure. Monitor greenhouse temperatures closely during hotter periods.")
+    if rain is not None:
+        if rain <= -10:
+            recs.append(f"Rainfall is {abs(rain):.1f}% below the historical baseline. Review irrigation planning, storage, and water-use efficiency for protected farming.")
+        elif rain >= 10:
+            recs.append(f"Rainfall is {rain:.1f}% above the historical baseline. Check drainage, humidity control, and disease pressure in protected farming areas.")
+    if ndvi_trend is not None and ndvi_trend < -0.03:
+        recs.append(f"Vegetation trend is {ndvi_trend:.3f}, indicating decline. Inspect crop stress, soil moisture, nutrient status, and possible pest or disease pressure.")
+    elif ndvi is not None and ndvi < 0.25:
+        recs.append(f"Current NDVI is {ndvi:.3f}, which suggests weak vegetation cover. Check plant health, irrigation adequacy, and crop stress conditions.")
+    if water is not None and water < 5:
+        recs.append(f"Surface-water occurrence is {water:.1f}, suggesting limited visible natural water. Confirm borehole reliability, water storage, and contingency planning.")
+    if not recs:
+        recs.append("Satellite signals do not show a single dominant greenhouse concern, but regular checks of ventilation, irrigation, and plant-health conditions are still recommended.")
+    return recs[:5]
 
 def build_pdf_report(
     preset: str,
@@ -255,74 +234,74 @@ def build_pdf_report(
 
     story.append(Paragraph("EagleNatureInsight | Panuka Pilot", _STYLES["TitleBrand"]))
     story.append(Paragraph(
-        "TNFD-aligned agribusiness screening report for Panuka AgriBiz Hub. This report translates satellite and environmental signals into plain-language insights for farm operations, greenhouse conditions, water planning, climate resilience, and SME financing discussions.",
+        "TNFD-aligned agribusiness screening report for Panuka AgriBiz Hub. This report translates satellite and environmental signals into practical farm-management insights for water planning, vegetation condition, greenhouse operations, climate resilience, and SME financing discussions.",
         _STYLES["SubBrand"],
     ))
 
     story.append(Paragraph("1. Executive summary", _STYLES["SectionBrand"]))
     for txt in [
-        f"This report summarises environmental and nature-related screening results for <b>{_safe_text(preset)}</b>.",
-        f"The historical review period used in this assessment is <b>{hist_start} to {hist_end}</b>.",
-        "The purpose of the report is to help Panuka and supported SMEs understand practical questions such as water certainty, vegetation condition, heat stress, greenhouse conditions, and possible operational risks.",
-        "The report follows the TNFD LEAP structure and translates technical outputs into practical agribusiness language.",
+        f"This report summarises screening results for <b>{_safe_text(preset)}</b> within the <b>{hist_start} to {hist_end}</b> review period.",
+        "The analysis is designed to support Panuka, its farm team, and supported SMEs with practical interpretation of water conditions, vegetation performance, heat stress, land cover, and greenhouse-related conditions.",
+        f"The current risk score is <b>{_safe_text(risk.get('score'))}/100</b>, with a risk band of <b>{_safe_text(risk.get('band'))}</b>.",
     ]:
         story.append(Paragraph(txt, _STYLES["BodyBrand"]))
 
     story.append(Paragraph("Top takeaways", _STYLES["SmallBrand"]))
-    _add_bullets(story, _derive_findings(metrics, risk))
+    takeaways = []
+    rain = _bucket_num(metrics.get("rain_anom_pct"))
+    if rain is not None:
+        takeaways.append(f"Rainfall anomaly is {rain:.1f}%, which helps explain current water certainty and likely irrigation pressure.")
+    ndvi = _bucket_num(metrics.get("ndvi_current"))
+    if ndvi is not None:
+        takeaways.append(f"Current NDVI is {ndvi:.3f}, which gives a quick view of vegetation strength across the site.")
+    lst = _bucket_num(metrics.get("lst_mean"))
+    if lst is not None:
+        takeaways.append(f"Recent land surface temperature is {lst:.1f}°C, which helps indicate heat stress conditions.")
+    if not takeaways:
+        takeaways = ["This site should be interpreted using the combined picture from rainfall, vegetation, heat, water, and land-cover conditions rather than one indicator alone."]
+    _add_bullets(story, takeaways[:3])
     _section_rule(story)
 
-    story.append(Paragraph("2. Reading guide and defined abbreviations", _STYLES["SectionBrand"]))
+    story.append(Paragraph("2. Reading guide and abbreviations", _STYLES["SectionBrand"]))
     story.append(Paragraph(
-        "This report avoids jargon as far as possible. Where abbreviations appear, they are defined below so that non-technical readers can follow the report easily.",
+        "This report uses plain language, but keeps key numbers visible so that the reader can see both the evidence and the interpretation.",
         _STYLES["BodyBrand"],
     ))
     story.append(_metric_table(sorted(ABBREVIATIONS.items()), (3.2 * cm, 13.8 * cm)))
     _section_rule(story)
 
-    story.append(Paragraph("3. Panuka SME engagement priorities addressed in this report", _STYLES["SectionBrand"]))
-    _add_bullets(story, [
-        "Water certainty and irrigation pressure",
-        "Rainfall variability and climate uncertainty",
-        "Protected farming versus open-field farming conditions",
-        "Soil stress and land condition screening",
-        "Pest-risk conditions and greenhouse humidity context",
-        "Usefulness for small farmers and incubation support",
-        "Financial resilience and funding-readiness conversations",
-        "Plain-language TNFD LEAP interpretation",
-    ])
-    _section_rule(story)
-
-    story.append(Paragraph("4. Overview metrics", _STYLES["SectionBrand"]))
+    story.append(Paragraph("3. Site overview", _STYLES["SectionBrand"]))
     story.append(_metric_table([
         ("Panuka pilot site", _safe_text(preset)),
         ("Pilot category", _safe_text(category)),
         ("Assessment area", fmt_num(metrics.get("area_ha"), 2, " ha")),
-        ("Current vegetation condition", fmt_num(metrics.get("ndvi_current"), 3)),
+        ("Current NDVI", fmt_num(metrics.get("ndvi_current"), 3)),
         ("Vegetation trend", fmt_num(metrics.get("ndvi_trend"), 3)),
         ("Rainfall anomaly", fmt_num(metrics.get("rain_anom_pct"), 1, "%")),
-        ("Recent land surface temperature", fmt_num(metrics.get("lst_mean"), 1, " °C")),
+        ("Recent LST", fmt_num(metrics.get("lst_mean"), 1, " °C")),
         ("Tree cover", fmt_num(metrics.get("tree_pct"), 1, "%")),
         ("Cropland", fmt_num(metrics.get("cropland_pct"), 1, "%")),
         ("Built-up area", fmt_num(metrics.get("built_pct"), 1, "%")),
         ("Surface-water occurrence", fmt_num(metrics.get("water_occ"), 1)),
         ("Forest loss", fmt_num(metrics.get("forest_loss_pct"), 1, "%")),
-    ], (7.2 * cm, 9.8 * cm)))
+    ], (7.0 * cm, 10.0 * cm)))
     _section_rule(story)
 
-    story.append(Paragraph("5. LEAP summary", _STYLES["SectionBrand"]))
-    for heading, desc in [
-        ("Locate", "The site and surrounding production landscape were defined using the selected point or polygon, then screened for land cover, vegetation, water context, and surrounding environmental conditions."),
-        ("Evaluate", "The system reviewed nature dependencies, visible pressures, greenhouse conditions where detected, and practical business meaning for water, heat, vegetation, and operational resilience."),
-        ("Assess", "The system translated those signals into a plain-language risk view, including physical risk conditions such as water stress, heat stress, vegetation stress, and broader landscape pressure."),
-        ("Prepare", "The system generated practical next actions, suggested review frequency, and business-oriented recommendations that Panuka or supported SMEs can test and refine."),
-    ]:
-        story.append(Paragraph(f"<b>{heading}</b>: {desc}", _STYLES["BodyBrand"]))
+    story.append(Paragraph("4. Environmental indicator interpretation", _STYLES["SectionBrand"]))
+    interp_rows = [
+        ("Rainfall anomaly", f"{fmt_num(metrics.get('rain_anom_pct'), 1, '%')} — Below-normal rainfall usually means higher irrigation pressure; above-normal rainfall may increase drainage and disease concerns."),
+        ("Current NDVI", f"{fmt_num(metrics.get('ndvi_current'), 3)} — Lower NDVI usually suggests weaker vegetation; higher NDVI usually suggests stronger vegetation cover."),
+        ("Vegetation trend", f"{fmt_num(metrics.get('ndvi_trend'), 3)} — A negative trend suggests vegetation is weakening over time; a positive trend suggests improvement."),
+        ("Recent LST", f"{fmt_num(metrics.get('lst_mean'), 1, ' °C')} — Higher temperature values usually mean greater heat stress for crops, workers, and infrastructure."),
+        ("Surface-water occurrence", f"{fmt_num(metrics.get('water_occ'), 1)} — Lower values suggest limited visible natural water and possible stronger dependence on storage or groundwater."),
+        ("Forest loss", f"{fmt_num(metrics.get('forest_loss_pct'), 1, '%')} — Higher values indicate more forest loss in the wider landscape context."),
+    ]
+    story.append(_metric_table(interp_rows, (4.3 * cm, 12.7 * cm)))
     _section_rule(story)
 
-    story.append(Paragraph("6. Locate", _STYLES["SectionBrand"]))
+    story.append(Paragraph("5. Locate", _STYLES["SectionBrand"]))
     story.append(Paragraph(
-        "Locate explains where the farm interacts with nature. It shows the production setting, surrounding land cover, visible water context, and the physical footprint used for the assessment.",
+        "Locate explains where the farm interacts with nature. It shows the production setting, surrounding land cover, visible water context, and the assessment footprint used in this report.",
         _STYLES["BodyBrand"],
     ))
     story.append(_metric_table([
@@ -331,145 +310,116 @@ def build_pdf_report(
         ("Cropland", fmt_num(metrics.get("cropland_pct"), 1, "%")),
         ("Built-up", fmt_num(metrics.get("built_pct"), 1, "%")),
         ("Surface-water occurrence", fmt_num(metrics.get("water_occ"), 1)),
-    ], (7.2 * cm, 9.8 * cm)))
+    ], (7.0 * cm, 10.0 * cm)))
     _section_rule(story)
 
-    story.append(Paragraph("7. Evaluate", _STYLES["SectionBrand"]))
+    story.append(Paragraph("6. Evaluate", _STYLES["SectionBrand"]))
     story.append(Paragraph(
-        "Evaluate reviews how the farm depends on nature, what pressures may be visible, what greenhouse conditions may matter, and what the indicators suggest for practical farm management.",
+        "Evaluate reviews how the farm depends on nature and what pressures may be building in the landscape. The aim is to translate indicators into practical business meaning.",
         _STYLES["BodyBrand"],
     ))
     story.append(Paragraph("Dependencies on nature", _STYLES["SmallBrand"]))
     _add_bullets(story, [
-        "The business depends on reliable water availability for irrigation, crop growth, and day-to-day farm operations.",
-        "Vegetation condition and tree cover matter because they help with soil protection, microclimate stability, and ecological resilience.",
-        "Rainfall patterns and heat conditions matter because they influence crop stress, pest pressure, and farming uncertainty.",
+        f"Water availability matters because rainfall anomaly is {fmt_num(metrics.get('rain_anom_pct'), 1, '%')} and visible surface-water occurrence is {fmt_num(metrics.get('water_occ'), 1)}.",
+        f"Vegetation and soil protection matter because current NDVI is {fmt_num(metrics.get('ndvi_current'), 3)} and the vegetation trend is {fmt_num(metrics.get('ndvi_trend'), 3)}.",
+        f"Heat conditions matter because recent LST is {fmt_num(metrics.get('lst_mean'), 1, ' °C')}, which can affect crop stress, water demand, and working conditions.",
     ])
-    impacts = []
-    try:
-        if metrics.get("ndvi_trend") is not None and float(metrics["ndvi_trend"]) < -0.03:
-            impacts.append("Vegetation decline suggests land pressure, ecological stress, or reduced ground cover in the surrounding landscape.")
-        else:
-            impacts.append("Vegetation condition does not show a strong decline signal, but should still be monitored over time.")
-    except Exception:
-        impacts.append("Vegetation condition should be monitored over time.")
-    try:
-        if metrics.get("forest_loss_pct") is not None and float(metrics["forest_loss_pct"]) > 5:
-            impacts.append("Forest loss is visible in the broader landscape, which may signal habitat pressure or land-use change.")
-        else:
-            impacts.append("Forest-loss pressure does not appear to be a dominant signal within the current assessment area.")
-    except Exception:
-        pass
-    try:
-        if metrics.get("water_occ") is not None and float(metrics["water_occ"]) < 5:
-            impacts.append("Visible surface water is limited, which may increase dependence on groundwater, storage, or external supply.")
-    except Exception:
-        pass
     story.append(Paragraph("Possible impacts and pressures", _STYLES["SmallBrand"]))
-    _add_bullets(story, impacts)
-    story.append(Paragraph("What the indicators are suggesting", _STYLES["SmallBrand"]))
-    _add_bullets(story, _derive_findings(metrics, risk))
+    pressures = []
+    if _bucket_num(metrics.get("ndvi_trend")) is not None and _bucket_num(metrics.get("ndvi_trend")) < -0.03:
+        pressures.append(f"Vegetation trend is {fmt_num(metrics.get('ndvi_trend'), 3)}, suggesting vegetation pressure or declining ground condition.")
+    else:
+        pressures.append(f"Vegetation trend is {fmt_num(metrics.get('ndvi_trend'), 3)}, which does not indicate a strong decline signal at this stage.")
+    if _bucket_num(metrics.get("forest_loss_pct")) is not None:
+        pressures.append(f"Forest loss is {fmt_num(metrics.get('forest_loss_pct'), 1, '%')} in the wider landscape context, which helps show whether surrounding habitat pressure is rising.")
+    if _bucket_num(metrics.get("built_pct")) is not None:
+        pressures.append(f"Built-up area is {fmt_num(metrics.get('built_pct'), 1, '%')}, which helps explain site heat and fragmentation pressure.")
+    _add_bullets(story, pressures)
     story.append(Paragraph("Exposure summary", _STYLES["SmallBrand"]))
     story.append(_metric_table([
-        ("Water exposure", f'{_water_exposure(metrics)} — Based on visible surface-water context'),
-        ("Heat exposure", f'{_heat_exposure(metrics)} — Based on recent land surface temperature'),
-        ("Vegetation exposure", f'{_vegetation_exposure(metrics)} — Based on current vegetation and trend'),
-    ], (7.2 * cm, 9.8 * cm)))
-    story.append(Paragraph("Why this matters", _STYLES["SmallBrand"]))
-    story.append(Paragraph(
-        "For an agribusiness, these signals matter because water reliability, vegetation condition, and heat stress can affect production, pest pressure, soil protection, and financial resilience.",
-        _STYLES["BodyBrand"],
-    ))
+        ("Water exposure", f"{_level(metrics.get('water_occ'), True, 5, 15)} — driven by visible water context and rainfall conditions"),
+        ("Heat exposure", f"{_level(metrics.get('lst_mean'), False, 28, 30)} — driven by current land surface temperature"),
+        ("Vegetation exposure", f"{_level(metrics.get('ndvi_current'), True, 0.25, 0.45)} — supported by current vegetation condition and trend"),
+    ], (7.0 * cm, 10.0 * cm)))
     _section_rule(story)
 
-    story.append(Paragraph("8. Greenhouse and protected-farming screening", _STYLES["SectionBrand"]))
+    story.append(Paragraph("7. Greenhouse and protected-farming conditions", _STYLES["SectionBrand"]))
     story.append(Paragraph(
-        "This section addresses the Panuka discussion about protected farming. Greenhouse-related outputs are screening proxies from satellite and contextual data. They are useful for prioritising field checks, but they do not replace in-greenhouse sensors, humidity sensors, pest traps, or direct agronomic inspection.",
+        "This section focuses on protected farming and greenhouse operations. Where greenhouse structures are detected, the recommendations below should be read alongside open-field conditions. Even where greenhouse detection is limited, satellite indicators can still suggest likely heat, water, humidity, and pest-related concerns.",
         _STYLES["BodyBrand"],
     ))
     story.append(_metric_table([
         ("Greenhouse detected", _safe_text(metrics.get("greenhouse_detected"), "No")),
         ("Estimated greenhouse area", fmt_num(metrics.get("greenhouse_ha"), 2, " ha")),
         ("Estimated greenhouse share of site", fmt_num(metrics.get("greenhouse_pct"), 1, "%")),
-        ("Greenhouse heat stress", _safe_text(metrics.get("greenhouse_heat_risk"))),
-        ("Greenhouse humidity risk", _safe_text(metrics.get("greenhouse_humidity_risk"))),
-        ("Greenhouse pest risk", _safe_text(metrics.get("greenhouse_pest_risk"))),
-        ("Irrigation demand", _safe_text(metrics.get("irrigation_demand"))),
-    ], (7.2 * cm, 9.8 * cm)))
-    story.append(Paragraph(
-        "How to read this section: greenhouse heat stress can indicate likely cooling or shading pressure; greenhouse humidity risk can indicate conditions that may favour disease or ventilation needs; greenhouse pest risk can indicate whether heat, vegetation, and moisture conditions may support closer inspection.",
-        _STYLES["MutedBrand"],
-    ))
+        ("Greenhouse heat stress", _safe_text(metrics.get("greenhouse_heat_risk"), _level(metrics.get("lst_mean"), False, 28, 30))),
+        ("Greenhouse humidity risk", _safe_text(metrics.get("greenhouse_humidity_risk"), "Moderate" if (_bucket_num(metrics.get("rain_anom_pct")) or 0) > 5 else "Elevated" if (_bucket_num(metrics.get("rain_anom_pct")) or 0) < -10 else "Moderate")),
+        ("Greenhouse pest risk", _safe_text(metrics.get("greenhouse_pest_risk"), "Elevated" if (_bucket_num(metrics.get("lst_mean")) or 0) >= 30 or (_bucket_num(metrics.get("ndvi_trend")) or 0) < -0.03 else "Moderate")),
+        ("Irrigation demand", _safe_text(metrics.get("irrigation_demand"), "High" if (_bucket_num(metrics.get("rain_anom_pct")) or 0) <= -10 else "Moderate")),
+    ], (7.0 * cm, 10.0 * cm)))
+    story.append(Paragraph("Greenhouse recommendations", _STYLES["SmallBrand"]))
+    _add_bullets(story, _greenhouse_recommendations(metrics))
     _section_rule(story)
 
-    story.append(Paragraph("9. Assess", _STYLES["SectionBrand"]))
+    story.append(Paragraph("8. Assess", _STYLES["SectionBrand"]))
     story.append(Paragraph(
-        "Assess translates environmental signals into a practical risk view for the farm and SME context. This is intended as a screening view, not a final agronomic or financial determination.",
+        "Assess translates the environmental signals into practical risk implications for production, operations, and resilience planning.",
         _STYLES["BodyBrand"],
     ))
     story.append(_metric_table([
+        ("Nature risk score", f"{_safe_text(risk.get('score'))}/100"),
+        ("Risk band", _safe_text(risk.get("band"))),
         ("Production reliability", _safe_text(metrics.get("production_reliability"), "Not available")),
         ("Funding readiness", _safe_text(metrics.get("funding_readiness"), "Not available")),
-        ("Nature risk score", _safe_text(risk.get("score"), "Not available")),
-        ("Risk band", _safe_text(risk.get("band"), "Not available")),
-    ], (7.2 * cm, 9.8 * cm)))
+    ], (7.0 * cm, 10.0 * cm)))
     story.append(Paragraph("Main flagged issues", _STYLES["SmallBrand"]))
-    _add_bullets(story, risk.get("flags") or ["No major automated flags were triggered in the current rule set."])
+    _add_bullets(story, risk.get("flags") or ["No major client-facing flags were generated for this assessment."])
     _section_rule(story)
 
-    story.append(Paragraph("10. Prepare", _STYLES["SectionBrand"]))
+    story.append(Paragraph("9. Prepare", _STYLES["SectionBrand"]))
     story.append(Paragraph(
-        "Prepare turns the screening findings into actions Panuka, its farm team, or supported SMEs can test. These recommendations are written to support decision-making, incubation support, and funding-readiness conversations.",
+        "Prepare turns the screening findings into practical next actions for Panuka, the farm team, or supported SMEs.",
         _STYLES["BodyBrand"],
     ))
     _add_bullets(story, risk.get("recs") or [])
-    story.append(Paragraph("Suggested use frequency", _STYLES["SmallBrand"]))
-    story.append(Paragraph(
-        "Seasonal review, with additional review before major planting, irrigation, greenhouse management, or financing decisions.",
-        _STYLES["BodyBrand"],
-    ))
-    _section_rule(story)
-
-    story.append(Paragraph("11. Bankability and SME support perspective", _STYLES["SectionBrand"]))
+    story.append(Paragraph("Suggested review frequency", _STYLES["SmallBrand"]))
     _add_bullets(story, [
-        "Use water reliability, production reliability, and heat stress outputs to support conversations about climate and operational stability.",
-        "Use greenhouse and open-field differences to show that the business understands where different production risks sit.",
-        "Use vegetation and rainfall trends to explain longer-term resilience, not just current conditions.",
-        "Use the report as a structured screening document for incubation, advisory support, or discussions with funders and partners.",
+        "Review at the start of each planting cycle.",
+        "Review before major irrigation or water-infrastructure decisions.",
+        "Review greenhouse conditions more frequently during hotter periods.",
+        "Review before financing, expansion, or major operational changes.",
     ])
     _section_rule(story)
 
-    story.append(Paragraph("12. Image outputs", _STYLES["SectionBrand"]))
+    story.append(Paragraph("10. Image outputs", _STYLES["SectionBrand"]))
     story.append(Paragraph(
-        "Each image below is paired with a short explanation so that non-technical readers can understand what it shows and why it matters.",
+        "Each image is paired with a short explanation so that non-technical readers can understand what it shows and why it matters.",
         _STYLES["BodyBrand"],
     ))
     for payload in (image_payloads or []):
         _image_block(story, _safe_text(payload.get("title")), _safe_text(payload.get("description")), payload.get("bytes"))
+
     story.append(PageBreak())
 
-    story.append(Paragraph("13. Historical plots and current charts", _STYLES["SectionBrand"]))
+    story.append(Paragraph("11. Historical plots and current charts", _STYLES["SectionBrand"]))
     story.append(Paragraph(
-        "The plots below help explain trends over time. Each one is described in plain language so the reader can understand what changes may matter for farm decisions.",
+        "The plots below help explain how conditions have changed over time. Each chart is supported with a short description so the numbers are easier to interpret.",
         _STYLES["BodyBrand"],
     ))
     for payload in (chart_payloads or []):
         _chart_block(story, _safe_text(payload.get("title")), _safe_text(payload.get("description")), payload.get("bytes"))
     _section_rule(story)
 
-    story.append(Paragraph("14. TNFD meeting points addressed by this report", _STYLES["SectionBrand"]))
+    story.append(Paragraph("12. Ongoing monitoring and review", _STYLES["SectionBrand"]))
     _add_bullets(story, [
-        "Less jargon: the report uses plain-language interpretations and defines abbreviations.",
-        "More narrative than raw data: each section explains what the trend means and why it matters.",
-        "Dependencies are made explicit: water, soil, vegetation, climate, and greenhouse conditions are discussed as business dependencies.",
-        "A portfolio of indicators is used rather than a single score only.",
-        "Numbers are supported by text, so a reader does not need technical background to interpret the outputs.",
-        "The report links environmental conditions to business resilience, operations, and funding readiness.",
-        "The LEAP structure remains clear and visible throughout the document.",
+        "Use this report as a seasonal screening tool rather than a once-off document.",
+        "Pair the report with field checks, irrigation records, pest scouting, and greenhouse observations.",
+        "Update the assessment when rainfall conditions change materially or when production systems expand.",
+        "Use the results to support incubation, advisory discussions, and funding-readiness conversations.",
     ])
     _section_rule(story)
 
-    story.append(Paragraph("15. Detailed metrics appendix", _STYLES["SectionBrand"]))
+    story.append(Paragraph("13. Detailed metrics appendix", _STYLES["SectionBrand"]))
     appendix_rows = sorted((str(k), _safe_text(v)) for k, v in metrics.items())
     story.append(_metric_table(appendix_rows, (6.0 * cm, 11.0 * cm)))
 
