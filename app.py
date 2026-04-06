@@ -392,6 +392,54 @@ def build_tnfd_matrix(metrics):
             "response": "Review seasonal planning and irrigation scheduling.",
         },
         {
+            "indicator": "Soil moisture",
+            "value": fmt_num(metrics.get("soil_moisture"), 3),
+            "meaning": "Soil moisture helps indicate how much water is currently available in the soil profile near the surface.",
+            "response": "Use with irrigation planning and field checks for crop stress.",
+        },
+        {
+            "indicator": "Evapotranspiration",
+            "value": fmt_num(metrics.get("evapotranspiration"), 1),
+            "meaning": "Evapotranspiration helps indicate how much water crops and soil are losing to the atmosphere.",
+            "response": "Review crop water demand and irrigation timing.",
+        },
+        {
+            "indicator": "Groundwater anomaly",
+            "value": fmt_num(metrics.get("groundwater_anomaly"), 2),
+            "meaning": "Groundwater anomaly shows whether broader terrestrial water storage is above or below its reference condition.",
+            "response": "Use as a regional water-security signal when discussing boreholes or long-term irrigation.",
+        },
+        {
+            "indicator": "Soil organic carbon",
+            "value": fmt_num(metrics.get("soil_organic_carbon"), 1),
+            "meaning": "Soil organic carbon is a useful proxy for soil fertility, structure, and water-holding support.",
+            "response": "Use with soil testing and soil management planning.",
+        },
+        {
+            "indicator": "Soil texture class",
+            "value": fmt_num(metrics.get("soil_texture_class"), 1),
+            "meaning": "Soil texture influences drainage, water-holding capacity, and crop suitability.",
+            "response": "Use with farm-specific soil interpretation and crop planning.",
+        },
+        {
+            "indicator": "Flood risk",
+            "value": fmt_num(metrics.get("flood_risk"), 2),
+            "meaning": "Flood hazard helps indicate whether parts of the site may be exposed to periodic inundation.",
+            "response": "Review drainage, site layout, and sensitive infrastructure placement.",
+        },
+        {
+            "indicator": "Fire risk",
+            "value": fmt_num(metrics.get("fire_risk"), 1),
+            "meaning": "Burned-area history helps indicate whether the surrounding landscape has shown fire activity.",
+            "response": "Review field-edge management and seasonal fire preparedness where relevant.",
+        },
+        {
+            "indicator": "Market access",
+            "value": fmt_num(metrics.get("travel_time_to_market"), 1, " min"),
+            "meaning": "Travel time to a major centre can affect logistics, market access, and operating efficiency.",
+            "response": "Use with transport and off-take planning for SME support.",
+        },
+        {
             "indicator": "Land condition",
             "value": fmt_num(metrics.get("forest_loss_pct"), 1, "%"),
             "meaning": "Landscape change can affect ecosystem stability and longer-term production conditions.",
@@ -420,6 +468,27 @@ def build_overall_environmental_interpretation(metrics):
         trend = metrics.get("ndvi_trend")
         if trend is not None and float(trend) < 0:
             statements.append(f"The vegetation trend is {fmt_num(trend, 3)}, which may indicate moisture, soil, or management-related stress in part of the landscape.")
+    except Exception:
+        pass
+
+    try:
+        sm = metrics.get("soil_moisture")
+        if sm is not None and float(sm) < 0.15:
+            statements.append(f"Soil moisture is {fmt_num(sm, 3)}, which suggests drier near-surface conditions and the need for closer irrigation attention.")
+    except Exception:
+        pass
+
+    try:
+        flood = metrics.get("flood_risk")
+        if flood is not None and float(flood) > 0.1:
+            statements.append(f"Flood hazard is {fmt_num(flood, 2)}, which suggests site drainage and low-lying infrastructure should be reviewed.")
+    except Exception:
+        pass
+
+    try:
+        access = metrics.get("travel_time_to_market")
+        if access is not None and float(access) > 60:
+            statements.append(f"Travel time to market is about {fmt_num(access, 1, ' minutes')}, which may create logistics pressure for some SMEs.")
     except Exception:
         pass
 
@@ -1091,6 +1160,14 @@ if results is not None:
         with r2c3:
             metric_card("Greenhouse Share", fmt_num(metrics.get("greenhouse_pct"), 1, "%"), "Estimated share of site")
 
+        r3c1, r3c2, r3c3 = st.columns(3)
+        with r3c1:
+            metric_card("Soil Moisture", fmt_num(metrics.get("soil_moisture"), 3), "SMAP surface soil moisture")
+        with r3c2:
+            metric_card("Evapotranspiration", fmt_num(metrics.get("evapotranspiration"), 1), "Crop water demand context")
+        with r3c3:
+            metric_card("Market Access", fmt_num(metrics.get("travel_time_to_market"), 1, " min"), "Approximate travel time")
+
         st.markdown("### Top findings")
         for finding in overview["findings"]:
             st.write(f"• {finding}")
@@ -1170,6 +1247,17 @@ if results is not None:
         for col, card in zip([o1, o2, o3, o4, o5], evaluate["operations_cards"]):
             with col:
                 metric_card(card["label"], card["value"], card["subtext"])
+
+        st.markdown("### Additional agricultural intelligence")
+        a1, a2, a3, a4 = st.columns(4)
+        with a1:
+            metric_card("Soil moisture", fmt_num(metrics.get("soil_moisture"), 3), "Current surface soil moisture")
+        with a2:
+            metric_card("Evapotranspiration", fmt_num(metrics.get("evapotranspiration"), 1), "Crop water loss context")
+        with a3:
+            metric_card("Flood risk", fmt_num(metrics.get("flood_risk"), 2), "River flood hazard proxy")
+        with a4:
+            metric_card("Fire risk", fmt_num(metrics.get("fire_risk"), 1), "Recent burned-area signal")
 
         st.markdown("### Why this matters")
         st.write(evaluate["why_it_matters"])
@@ -1254,6 +1342,14 @@ if results is not None:
                     "Forest loss (ha)",
                     "Forest loss (%)",
                     "Biome context proxy",
+                    "Soil moisture",
+                    "Evapotranspiration",
+                    "Groundwater anomaly",
+                    "Soil organic carbon",
+                    "Soil texture class",
+                    "Flood risk",
+                    "Fire risk",
+                    "Travel time to market (min)",
                 ],
                 "Value": [
                     preset,
@@ -1269,6 +1365,14 @@ if results is not None:
                     metrics.get("forest_loss_ha"),
                     metrics.get("forest_loss_pct"),
                     metrics.get("bio_proxy"),
+                    metrics.get("soil_moisture"),
+                    metrics.get("evapotranspiration"),
+                    metrics.get("groundwater_anomaly"),
+                    metrics.get("soil_organic_carbon"),
+                    metrics.get("soil_texture_class"),
+                    metrics.get("flood_risk"),
+                    metrics.get("fire_risk"),
+                    metrics.get("travel_time_to_market"),
                 ],
             }
         )
