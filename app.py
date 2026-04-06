@@ -605,11 +605,11 @@ with left_col:
 with right_col:
     focus1, focus2 = st.columns(2)
     with focus1:
-        if st.button("Focus Site 1", use_container_width=True):
+        if st.button("Focus Site 1", width='stretch'):
             apply_preset("Panuka Site 1")
             st.rerun()
     with focus2:
-        if st.button("Focus Site 2", use_container_width=True):
+        if st.button("Focus Site 2", width='stretch'):
             apply_preset("Panuka Site 2")
             st.rerun()
 
@@ -691,7 +691,7 @@ with st.expander("Show geometry payload"):
     else:
         st.json(geometry_payload)
 
-run = st.button("Run Assessment", use_container_width=True)
+run = st.button("Run Assessment", width='stretch')
 
 if run:
     if ee_geom is None:
@@ -866,7 +866,7 @@ if st.session_state["report_payload"] is not None:
         data=st.session_state["report_payload"]["pdf_bytes"],
         file_name=st.session_state["report_payload"]["file_name"],
         mime="application/pdf",
-        use_container_width=True,
+        width='stretch',
     )
 
 results = st.session_state["results_payload"]
@@ -893,7 +893,57 @@ if results is not None:
     overview = build_overview_content(preset, category, metrics, risk)
     evaluate = build_evaluate_content(category, metrics)
 
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
+    
+
+def build_assess_content(metrics, risk):
+    statements = []
+    implications = []
+
+    try:
+        rain = metrics.get("rain_anom_pct")
+        if rain is not None and float(rain) < -10:
+            statements.append(f"Rainfall is {abs(float(rain)):.1f}% below the long-term baseline, indicating increased irrigation demand and water uncertainty.")
+            implications.append("Review irrigation scheduling, storage, and borehole planning before the next production cycle.")
+    except Exception:
+        pass
+
+    try:
+        temp = metrics.get("lst_mean")
+        if temp is not None and float(temp) >= 30:
+            statements.append(f"Average land surface temperature of {float(temp):.1f}°C indicates elevated heat stress conditions.")
+            implications.append("Heat conditions may affect crops, workers, livestock, and greenhouse cooling needs.")
+    except Exception:
+        pass
+
+    try:
+        ndvi = metrics.get("ndvi_current")
+        if ndvi is not None and float(ndvi) < 0.35:
+            statements.append(f"Vegetation condition index of {float(ndvi):.2f} suggests moderate vegetation stress.")
+            implications.append("Inspect production areas for soil moisture stress, nutrient pressure, or pest-related decline.")
+    except Exception:
+        pass
+
+    try:
+        gh_pct = metrics.get("greenhouse_pct")
+        if gh_pct is not None and float(gh_pct) > 0:
+            statements.append(f"Estimated protected-farming area is {float(gh_pct):.1f}% of the assessed site, so greenhouse and open-field conditions should be reviewed together.")
+            implications.append("Where greenhouses are present, check ventilation, heat build-up, irrigation demand, and pest pressure alongside open-field conditions.")
+    except Exception:
+        pass
+
+    if not statements:
+        statements.append("Current environmental conditions do not show a single dominant stress signal, but seasonal monitoring remains important.")
+    if not implications:
+        implications.append("Use the portfolio of indicators together to guide seasonal planning, irrigation decisions, and field verification.")
+
+    return {
+        "narrative": "This section interprets the portfolio of environmental indicators as an operational risk view. It is designed to support practical decisions rather than reduce the site to a single score.",
+        "statements": statements,
+        "implications": implications,
+    }
+
+
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
         ["Overview", "Locate", "Evaluate", "Assess", "Prepare", "Images", "Trends", "Detailed Results"]
     )
 
@@ -944,7 +994,7 @@ if results is not None:
         st.markdown("### Current land-cover composition")
         if not lc_df.empty:
             fig = build_landcover_bar(lc_df)
-            st.plotly_chart(fig, use_container_width=True, key="locate_landcover_bar")
+            st.plotly_chart(fig, width='stretch', key="locate_landcover_bar")
             st.caption("This chart shows how the selected area is currently divided across land-cover classes such as tree cover, cropland, built-up land, and water.")
 
     with tab3:
@@ -996,7 +1046,7 @@ if results is not None:
     
         st.markdown("### TNFD matrix")
         tnfd_matrix_df = pd.DataFrame(build_tnfd_matrix(metrics))
-        st.dataframe(tnfd_matrix_df, use_container_width=True, hide_index=True)
+        st.dataframe(tnfd_matrix_df, width='stretch', hide_index=True)
     
         st.markdown("### What the portfolio of indicators is showing")
         for statement in assess["statements"]:
@@ -1028,31 +1078,31 @@ if results is not None:
 
         img1, img2 = st.columns(2)
         with img1:
-            st.image(satellite_url, caption="Satellite image with polygon", use_container_width=True)
-            st.image(ndvi_url, caption="NDVI image with polygon", use_container_width=True)
-            st.image(veg_change_url, caption="Vegetation change map with polygon", use_container_width=True)
+            st.image(satellite_url, caption="Satellite image with polygon", width='stretch')
+            st.image(ndvi_url, caption="NDVI image with polygon", width='stretch')
+            st.image(veg_change_url, caption="Vegetation change map with polygon", width='stretch')
         with img2:
-            st.image(landcover_url, caption="Land-cover image with polygon", use_container_width=True)
-            st.image(forest_loss_url, caption="Forest loss map with polygon", use_container_width=True)
+            st.image(landcover_url, caption="Land-cover image with polygon", width='stretch')
+            st.image(forest_loss_url, caption="Forest loss map with polygon", width='stretch')
 
     with tab7:
         st.markdown("## Historical plots")
 
         if not ndvi_hist_df.empty:
             fig = px.line(ndvi_hist_df, x="year", y="value", title="Historical NDVI (Landsat)")
-            st.plotly_chart(fig, use_container_width=True, key="trend_ndvi")
+            st.plotly_chart(fig, width='stretch', key="trend_ndvi")
         if not rain_hist_df.empty:
             fig = px.line(rain_hist_df, x="year", y="value", title="Historical Rainfall (CHIRPS)")
-            st.plotly_chart(fig, use_container_width=True, key="trend_rain")
+            st.plotly_chart(fig, width='stretch', key="trend_rain")
         if not lst_hist_df.empty:
             fig = px.line(lst_hist_df, x="year", y="value", title="Historical Land Surface Temperature (MODIS)")
-            st.plotly_chart(fig, use_container_width=True, key="trend_lst")
+            st.plotly_chart(fig, width='stretch', key="trend_lst")
         if not forest_hist_df.empty:
             fig = px.bar(forest_hist_df, x="year", y="value", title="Historical Forest Loss by Year (Hansen)")
-            st.plotly_chart(fig, use_container_width=True, key="trend_forest")
+            st.plotly_chart(fig, width='stretch', key="trend_forest")
         if not water_hist_df.empty:
             fig = px.line(water_hist_df, x="year", y="value", title="Historical Water Presence (JRC)")
-            st.plotly_chart(fig, use_container_width=True, key="trend_water")
+            st.plotly_chart(fig, width='stretch', key="trend_water")
 
     with tab8:
         st.markdown("## Detailed results")
@@ -1091,11 +1141,11 @@ if results is not None:
                 ],
             }
         )
-        st.dataframe(detail_df, use_container_width=True)
+        st.dataframe(detail_df, width='stretch')
 
         if not lc_df.empty:
             fig = build_landcover_bar(lc_df)
-            st.plotly_chart(fig, use_container_width=True, key="detail_landcover_bar")
+            st.plotly_chart(fig, width='stretch', key="detail_landcover_bar")
 
 def build_tnfd_matrix(metrics):
     return [
@@ -1131,56 +1181,3 @@ def build_tnfd_matrix(metrics):
         },
     ]
 
-
-def build_assess_content(metrics, risk):
-    statements = []
-    rain = metrics.get("rain_anom_pct")
-    temp = metrics.get("lst_mean")
-    veg = metrics.get("ndvi_current")
-    trend = metrics.get("ndvi_trend")
-    water_rel = metrics.get("water_reliability")
-    prod_rel = metrics.get("production_reliability")
-    funding = metrics.get("funding_readiness")
-
-    try:
-        if rain is not None and float(rain) < -10:
-            statements.append(f"Recent rainfall is {abs(float(rain)):.1f}% below the baseline, which increases irrigation and water-planning pressure.")
-    except Exception:
-        pass
-    try:
-        if temp is not None and float(temp) >= 30:
-            statements.append(f"Average surface temperature is {float(temp):.1f}°C, which suggests elevated heat stress conditions.")
-    except Exception:
-        pass
-    try:
-        if veg is not None and float(veg) < 0.35:
-            statements.append(f"Current vegetation condition is {float(veg):.2f}, which suggests moderate vegetation stress.")
-    except Exception:
-        pass
-    try:
-        if trend is not None and float(trend) < -0.03:
-            statements.append("Vegetation has been weakening over time, which may indicate growing ecological or production pressure.")
-    except Exception:
-        pass
-
-    if not statements:
-        statements.append("Current environmental conditions appear relatively stable, but regular monitoring is still recommended.")
-
-    implications = []
-    if _safe_text := None:
-        pass
-    if isinstance(water_rel, str):
-        implications.append(f"Water reliability is currently read as {water_rel.lower()}, which should inform irrigation and borehole planning.")
-    if isinstance(prod_rel, str):
-        implications.append(f"Production reliability is currently read as {prod_rel.lower()}, which can support operational planning and SME advisory support.")
-    if isinstance(funding, str):
-        implications.append(f"Funding readiness is currently read as {funding.lower()}, which can support finance and partnership conversations.")
-
-    if not implications:
-        implications.append("These conditions should be used to support production planning, greenhouse management, and resilience decisions.")
-
-    return {
-        "narrative": "This section brings the environmental signals together as a portfolio of risk conditions rather than a single score. The aim is to show what the numbers mean for operations, resilience, and planning.",
-        "statements": statements,
-        "implications": implications,
-    }
