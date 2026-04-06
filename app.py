@@ -990,28 +990,28 @@ if results is not None:
 
     
     with tab4:
-    st.markdown("## Assess")
-    assess = build_assess_content(metrics, risk)
-    st.write(assess["narrative"])
-
-    st.markdown("### TNFD matrix")
-    tnfd_matrix_df = pd.DataFrame(build_tnfd_matrix(metrics))
-    st.dataframe(tnfd_matrix_df, use_container_width=True, hide_index=True)
-
-    st.markdown("### What the portfolio of indicators is showing")
-    for statement in assess["statements"]:
-        st.write(f"• {statement}")
-
-    st.markdown("### Operational implications")
-    for item in assess["implications"]:
-        st.write(f"• {item}")
-
-    st.markdown("### Issues to keep under review")
-    if risk["flags"]:
-        for flag in risk["flags"]:
-            st.write(f"• {flag}")
-    else:
-        st.write("• No major concerns stand out in the current screening view, but seasonal monitoring is still recommended.")
+        st.markdown("## Assess")
+        assess = build_assess_content(metrics, risk)
+        st.write(assess["narrative"])
+    
+        st.markdown("### TNFD matrix")
+        tnfd_matrix_df = pd.DataFrame(build_tnfd_matrix(metrics))
+        st.dataframe(tnfd_matrix_df, use_container_width=True, hide_index=True)
+    
+        st.markdown("### What the portfolio of indicators is showing")
+        for statement in assess["statements"]:
+            st.write(f"• {statement}")
+    
+        st.markdown("### Operational implications")
+        for item in assess["implications"]:
+            st.write(f"• {item}")
+    
+        st.markdown("### Issues to keep under review")
+        if risk["flags"]:
+            for flag in risk["flags"]:
+                st.write(f"• {flag}")
+        else:
+            st.write("• No major concerns stand out in the current screening view, but seasonal monitoring is still recommended.")
 
     with tab5:
         st.markdown("## Prepare")
