@@ -1,3 +1,53 @@
+from datetime import datetime
+from reportlab.platypus import Image, Paragraph, Spacer
+from reportlab.lib.styles import ParagraphStyle
+
+def add_report_header(elements, site_name, category,
+                      location, hist_start, hist_end):
+
+    title_style = ParagraphStyle(
+        name="Title",
+        fontSize=16,
+        leading=18,
+        spaceAfter=10
+    )
+
+    info_style = ParagraphStyle(
+        name="Info",
+        fontSize=10,
+        leading=14
+    )
+
+    logo_path = "assets/logo.png"
+
+    try:
+        logo = Image(logo_path, width=140, height=70)
+        elements.append(logo)
+    except Exception:
+        pass
+
+    elements.append(Spacer(1, 12))
+
+    elements.append(
+        Paragraph(
+            "EagleNatureInsight™ TNFD Assessment Report",
+            title_style
+        )
+    )
+
+    report_date = datetime.today().strftime("%d %B %Y")
+
+    info_text = (
+        "<b>Site:</b> " + str(site_name) + "<br/>"
+        "<b>Location:</b> " + str(location) + "<br/>"
+        "<b>Category:</b> " + str(category) + "<br/>"
+        "<b>Assessment period:</b> " + str(hist_start) + " – " + str(hist_end) + "<br/>"
+        "<b>Report date:</b> " + report_date
+    )
+
+    elements.append(Paragraph(info_text, info_style))
+    elements.append(Spacer(1, 18))
+
 from __future__ import annotations
 
 import io
