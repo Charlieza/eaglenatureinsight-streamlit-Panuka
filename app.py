@@ -50,8 +50,8 @@ PRESET_TO_CATEGORY = {
 }
 
 PRESET_TO_LOCATION = {
-    "Panuka Site 1": {"lat": -15.251194, "lon": 28.144500, "buffer_m": 1200, "zoom": 9},
-    "Panuka Site 2": {"lat": -15.251472, "lon": 28.147417, "buffer_m": 1200, "zoom": 9},
+    "Panuka Site 1": {"lat": -15.251194, "lon": 28.144500, "buffer_m": 1200, "zoom": 15},
+    "Panuka Site 2": {"lat": -15.251472, "lon": 28.147417, "buffer_m": 1200, "zoom": 15},
 }
 
 PRESETS = [
@@ -74,7 +74,7 @@ def init_state():
         "lon_input": "",
         "buffer_input": 1000,
         "map_center": [-15.251194, 28.144500],
-        "map_zoom": 9,
+        "map_zoom": 15,
         "draw_mode": "Draw polygon",
         "last_drawn_geojson": None,
         "report_payload": None,
@@ -204,7 +204,7 @@ def build_map(center, zoom, draw_mode, lat=None, lon=None, buffer_m=None, existi
         m.fit_bounds(bounds, padding=(35, 35))
         if active_name is not None:
             m.location = [active_lat, active_lon]
-            m.options["zoom"] = min(zoom, 9)
+            m.options["zoom"] = zoom
 
     return m
 
