@@ -680,6 +680,9 @@ def market_access_mean(geom: ee.Geometry):
 
 
 def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full_year: int):
+    """
+    Compute metrics in small batches to avoid Earth Engine user-memory errors.
+    """
     _, ndvi_mean = current_ndvi_image_and_mean(geom, last_full_year)
     ndvi_hist = landsat_annual_ndvi_collection(geom, max(hist_start, 1984), hist_end)
     forest_summary = forest_loss_summary(geom)
@@ -687,13 +690,14 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
     total_area_ha_raw = ee.Image.pixelArea().divide(10000).reduceRegion(
         reducer=ee.Reducer.sum(),
         geometry=geom,
-        scale=10,
-        maxPixels=1e13,
+        scale=30,
+        maxPixels=1e12,
+        bestEffort=True,
     ).get("area")
     total_area_ha = safe_number(total_area_ha_raw, 0)
 
     greenhouse_ha = detect_greenhouse_area_ha(geom, last_full_year)
-    greenhouse_pct = ee.Algorithms.If(total_area_ha.gt(0), greenhouse_ha.divide(total_area_ha).multiply(100), 0)
+    greenhouse_pct = ee.Algorithms.If(total_area_ha.gt(0), ee.Number(greenhouse_ha).divide(ee.Number(total_area_ha)).multiply(100), 0)
 
     rain_anom_pct = rainfall_anomaly_pct_from_range(geom, hist_start, hist_end)
     lst_mean = lst_recent_mean_from_range(geom, hist_start, hist_end)
@@ -708,7 +712,6 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
     fire_risk = fire_risk_mean(geom, hist_end)
     travel_time_to_market = market_access_mean(geom)
 
-    # Simple screening proxies for Panuka greenhouse/open-field use.
     water_reliability = ee.Algorithms.If(
         ee.Algorithms.IsEqual(rain_anom_pct, None),
         None,
@@ -730,11 +733,7 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
             ee.Algorithms.IsEqual(lst_mean, None),
         ]).contains(True),
         None,
-        ee.Number(40)
-        .add(ee.Number(rain_anom_pct).max(0).multiply(1.2))
-        .add(ee.Number(lst_mean).subtract(24).multiply(2))
-        .max(0)
-        .min(100),
+        ee.Number(40).add(ee.Number(rain_anom_pct).max(0).multiply(1.2)).add(ee.Number(lst_mean).subtract(24).multiply(2)).max(0).min(100),
     )
     greenhouse_pest_risk = ee.Algorithms.If(
         ee.List([
@@ -742,10 +741,7 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
             ee.Algorithms.IsEqual(greenhouse_heat_stress, None),
         ]).contains(True),
         None,
-        ee.Number(greenhouse_humidity_risk).multiply(0.55)
-        .add(ee.Number(greenhouse_heat_stress).multiply(0.45))
-        .max(0)
-        .min(100),
+        ee.Number(greenhouse_humidity_risk).multiply(0.55).add(ee.Number(greenhouse_heat_stress).multiply(0.45)).max(0).min(100),
     )
     irrigation_demand = ee.Algorithms.If(
         ee.List([
@@ -753,11 +749,7 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
             ee.Algorithms.IsEqual(lst_mean, None),
         ]).contains(True),
         None,
-        ee.Number(50)
-        .add(ee.Number(rain_anom_pct).multiply(-1.2))
-        .add(ee.Number(lst_mean).subtract(25).multiply(3))
-        .max(0)
-        .min(100),
+        ee.Number(50).add(ee.Number(rain_anom_pct).multiply(-1.2)).add(ee.Number(lst_mean).subtract(25).multiply(3)).max(0).min(100),
     )
     production_reliability = ee.Algorithms.If(
         ee.List([
@@ -767,13 +759,7 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
         None,
         ee.Number(water_reliability).multiply(0.35)
         .add(ee.Number(100).subtract(ee.Number(soil_stress_proxy)).multiply(0.35))
-        .add(
-            ee.Algorithms.If(
-                ee.Algorithms.IsEqual(soil_moisture, None),
-                15,
-                ee.Number(soil_moisture).multiply(100).min(30)
-            )
-        )
+        .add(ee.Algorithms.If(ee.Algorithms.IsEqual(soil_moisture, None), 15, ee.Number(soil_moisture).multiply(100).min(30)))
         .max(0)
         .min(100),
     )
@@ -782,25 +768,13 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
         None,
         ee.Number(production_reliability).multiply(0.55)
         .add(ee.Number(100).subtract(safe_number(forest_summary["loss_pct"], 0)).multiply(0.15))
-        .add(
-            ee.Algorithms.If(
-                ee.Algorithms.IsEqual(flood_risk, None),
-                15,
-                ee.Number(100).subtract(ee.Number(flood_risk).min(100)).multiply(0.15)
-            )
-        )
-        .add(
-            ee.Algorithms.If(
-                ee.Algorithms.IsEqual(travel_time_to_market, None),
-                15,
-                ee.Number(100).subtract(ee.Number(travel_time_to_market).divide(3).min(100)).multiply(0.15)
-            )
-        )
+        .add(ee.Algorithms.If(ee.Algorithms.IsEqual(flood_risk, None), 15, ee.Number(100).subtract(ee.Number(flood_risk).min(100)).multiply(0.15)))
+        .add(ee.Algorithms.If(ee.Algorithms.IsEqual(travel_time_to_market, None), 15, ee.Number(100).subtract(ee.Number(travel_time_to_market).divide(3).min(100)).multiply(0.15)))
         .max(0)
         .min(100),
     )
 
-    metrics = ee.Dictionary({
+    metric_exprs = {
         "area_ha": total_area_ha,
         "ndvi_current": ndvi_mean,
         "ndvi_trend": ndvi_trend,
@@ -832,7 +806,11 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
         "flood_risk": flood_risk,
         "fire_risk": fire_risk,
         "travel_time_to_market": travel_time_to_market,
-    })
+    }
 
-    return metrics.getInfo()
+    results = {}
+    for key, expr in metric_exprs.items():
+        results[key] = _get_info_safe(expr)
+
+    return results
 
