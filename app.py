@@ -50,8 +50,8 @@ PRESET_TO_CATEGORY = {
 }
 
 PRESET_TO_LOCATION = {
-    "Panuka Site 1": {"lat": -15.251194, "lon": 28.144500, "buffer_m": 1200, "zoom": 15},
-    "Panuka Site 2": {"lat": -15.251472, "lon": 28.147417, "buffer_m": 1200, "zoom": 15},
+    "Panuka Site 1": {"lat": -15.251194, "lon": 28.144500, "buffer_m": 1200, "zoom": 13},
+    "Panuka Site 2": {"lat": -15.251472, "lon": 28.147417, "buffer_m": 1200, "zoom": 13},
 }
 
 PRESETS = [
@@ -74,7 +74,7 @@ def init_state():
         "lon_input": "",
         "buffer_input": 1000,
         "map_center": [-15.251194, 28.144500],
-        "map_zoom": 15,
+        "map_zoom": 13,
         "draw_mode": "Draw polygon",
         "last_drawn_geojson": None,
         "report_payload": None,
@@ -112,6 +112,7 @@ def build_map(center, zoom, draw_mode, lat=None, lon=None, buffer_m=None, existi
     m = folium.Map(
         location=center,
         zoom_start=zoom,
+        min_zoom=5,
         control_scale=True,
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         attr="Esri Satellite",
@@ -163,6 +164,18 @@ def build_map(center, zoom, draw_mode, lat=None, lon=None, buffer_m=None, existi
         is_active = active_lat is not None and active_lon is not None and abs(active_lat - plat) < 0.0008 and abs(active_lon - plon) < 0.0008
         if is_active:
             active_name = name
+            folium.CircleMarker(
+                location=[plat, plon],
+                radius=14,
+                color="#60a5fa",
+                weight=2,
+                fill=True,
+                fill_color="#93c5fd",
+                fill_opacity=0.35,
+                opacity=0.8,
+                popup=folium.Popup(f"<b>{name}</b><br>Selected site", max_width=220),
+                tooltip=f"{name} (selected)",
+            ).add_to(fg)
 
         folium.CircleMarker(
             location=[plat, plon],
@@ -175,13 +188,6 @@ def build_map(center, zoom, draw_mode, lat=None, lon=None, buffer_m=None, existi
             popup=folium.Popup(f"<b>{name}</b>", max_width=220),
             tooltip=name,
         ).add_to(fg)
-
-        if is_active:
-            folium.Marker(
-                [plat, plon],
-                icon=folium.Icon(color="blue", icon="map-pin", prefix="fa"),
-                tooltip=f"Selected: {name}",
-            ).add_to(fg)
 
     fg.add_to(m)
 
@@ -198,7 +204,7 @@ def build_map(center, zoom, draw_mode, lat=None, lon=None, buffer_m=None, existi
         m.fit_bounds(bounds, padding=(35, 35))
         if active_name is not None:
             m.location = [active_lat, active_lon]
-            m.options["zoom"] = zoom
+            m.options["zoom"] = min(zoom, 13)
 
     return m
 
