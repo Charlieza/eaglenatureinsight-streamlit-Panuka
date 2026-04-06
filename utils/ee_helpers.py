@@ -655,7 +655,8 @@ def soil_texture_class_mean(geom: ee.Geometry):
 
 def flood_risk_mean(geom: ee.Geometry):
     ds = get_datasets()
-    image = ds["FLOOD_HAZARD"].select("RP100_depth")
+    collection = ds["FLOOD_HAZARD"].filterBounds(geom)
+    image = ee.Image(collection.first()).select("RP100_depth")
     return _reduce_mean_first_band(image, geom, 90)
 
 
@@ -834,3 +835,4 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
     })
 
     return metrics.getInfo()
+
