@@ -44,6 +44,15 @@ def get_datasets():
     lc08 = ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
     lc09 = ee.ImageCollection("LANDSAT/LC09/C02/T1_L2")
 
+    modis_et = ee.ImageCollection("MODIS/061/MOD16A2GF")
+    smap_l4 = ee.ImageCollection("NASA/SMAP/SPL4SMGP/007")
+    grace = ee.ImageCollection("NASA/GRACE/MASS_GRIDS_V04/LAND")
+    soil_organic_carbon = ee.Image("OpenLandMap/SOL/SOL_ORGANIC-CARBON_USDA-6A1C_M/v02")
+    soil_texture = ee.Image("OpenLandMap/SOL/SOL_TEXTURE-CLASS_USDA-TT_M/v02")
+    flood_hazard = ee.Image("JRC/CEMS_GLOFAS/FloodHazard/v2_1")
+    fire_burned = ee.ImageCollection("MODIS/061/MCD64A1")
+    market_access = ee.Image("projects/malariaatlasproject/assets/accessibility/accessibility_to_cities_2015_v1_0")
+
     bio_proxy = (
         ee.FeatureCollection("RESOLVE/ECOREGIONS/2017")
         .reduceToImage(properties=["BIOME_NUM"], reducer=ee.Reducer.first())
@@ -58,6 +67,14 @@ def get_datasets():
         "GSW_YEARLY": gsw_yearly,
         "HANSEN": hansen,
         "MODIS_LST": modis_lst,
+        "MODIS_ET": modis_et,
+        "SMAP_L4": smap_l4,
+        "GRACE": grace,
+        "SOIL_OC": soil_organic_carbon,
+        "SOIL_TEXTURE": soil_texture,
+        "FLOOD_HAZARD": flood_hazard,
+        "FIRE_BURNED": fire_burned,
+        "MARKET_ACCESS": market_access,
         "LT05": lt05,
         "LE07": le07,
         "LC08": lc08,
@@ -572,6 +589,95 @@ def detect_greenhouse_area_ha(geom: ee.Geometry, last_full_year: int):
 
 
 
+
+
+def _reduce_mean_first_band(image: ee.Image, geom: ee.Geometry, scale: int):
+    reduction = image.reduceRegion(
+        reducer=ee.Reducer.mean(),
+        geometry=geom,
+        scale=scale,
+        maxPixels=1e13,
+    )
+    values = ee.Dictionary(reduction).values()
+    return ee.Algorithms.If(ee.List(values).size().gt(0), values.get(0), None)
+
+
+def soil_moisture_mean(geom: ee.Geometry, hist_end: int):
+    ds = get_datasets()
+    start_year = max(2015, hist_end - 1)
+    image = (
+        ds["SMAP_L4"]
+        .filterBounds(geom)
+        .filterDate(f"{start_year}-01-01", f"{hist_end}-12-31")
+        .select("sm_surface")
+        .mean()
+    )
+    return _reduce_mean_first_band(image, geom, 11000)
+
+
+def evapotranspiration_mean(geom: ee.Geometry, hist_end: int):
+    ds = get_datasets()
+    start_year = max(2000, hist_end - 1)
+    image = (
+        ds["MODIS_ET"]
+        .filterBounds(geom)
+        .filterDate(f"{start_year}-01-01", f"{hist_end}-12-31")
+        .select("ET")
+        .mean()
+    )
+    raw = _reduce_mean_first_band(image, geom, 500)
+    return ee.Algorithms.If(ee.Algorithms.IsEqual(raw, None), None, ee.Number(raw).multiply(0.1))
+
+
+def groundwater_anomaly_mean(geom: ee.Geometry, hist_end: int):
+    ds = get_datasets()
+    end_year = min(hist_end, 2017)
+    start_year = max(2003, end_year - 1)
+    image = (
+        ds["GRACE"]
+        .filterBounds(geom)
+        .filterDate(f"{start_year}-01-01", f"{end_year}-12-31")
+        .select("lwe_thickness_csr")
+        .mean()
+    )
+    return _reduce_mean_first_band(image, geom, 25000)
+
+
+def soil_organic_carbon_mean(geom: ee.Geometry):
+    ds = get_datasets()
+    return _reduce_mean_first_band(ds["SOIL_OC"], geom, 250)
+
+
+def soil_texture_class_mean(geom: ee.Geometry):
+    ds = get_datasets()
+    return _reduce_mean_first_band(ds["SOIL_TEXTURE"], geom, 250)
+
+
+def flood_risk_mean(geom: ee.Geometry):
+    ds = get_datasets()
+    image = ds["FLOOD_HAZARD"].select("RP100_depth")
+    return _reduce_mean_first_band(image, geom, 90)
+
+
+def fire_risk_mean(geom: ee.Geometry, hist_end: int):
+    ds = get_datasets()
+    start_year = max(2001, hist_end - 4)
+    image = (
+        ds["FIRE_BURNED"]
+        .filterBounds(geom)
+        .filterDate(f"{start_year}-01-01", f"{hist_end}-12-31")
+        .select("BurnDate")
+        .gt(0)
+        .sum()
+    )
+    return _reduce_mean_first_band(image, geom, 500)
+
+
+def market_access_mean(geom: ee.Geometry):
+    ds = get_datasets()
+    return _reduce_mean_first_band(ds["MARKET_ACCESS"], geom, 1000)
+
+
 def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full_year: int):
     _, ndvi_mean = current_ndvi_image_and_mean(geom, last_full_year)
     ndvi_hist = landsat_annual_ndvi_collection(geom, max(hist_start, 1984), hist_end)
@@ -591,6 +697,15 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
     rain_anom_pct = rainfall_anomaly_pct_from_range(geom, hist_start, hist_end)
     lst_mean = lst_recent_mean_from_range(geom, hist_start, hist_end)
     ndvi_trend = series_recent_vs_early_delta(ndvi_hist)
+
+    soil_moisture = soil_moisture_mean(geom, hist_end)
+    evapotranspiration = evapotranspiration_mean(geom, hist_end)
+    groundwater_anomaly = groundwater_anomaly_mean(geom, hist_end)
+    soil_organic_carbon = soil_organic_carbon_mean(geom)
+    soil_texture_class = soil_texture_class_mean(geom)
+    flood_risk = flood_risk_mean(geom)
+    fire_risk = fire_risk_mean(geom, hist_end)
+    travel_time_to_market = market_access_mean(geom)
 
     # Simple screening proxies for Panuka greenhouse/open-field use.
     water_reliability = ee.Algorithms.If(
@@ -649,16 +764,37 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
             ee.Algorithms.IsEqual(soil_stress_proxy, None),
         ]).contains(True),
         None,
-        ee.Number(water_reliability).multiply(0.5)
-        .add(ee.Number(100).subtract(ee.Number(soil_stress_proxy)).multiply(0.5))
+        ee.Number(water_reliability).multiply(0.35)
+        .add(ee.Number(100).subtract(ee.Number(soil_stress_proxy)).multiply(0.35))
+        .add(
+            ee.Algorithms.If(
+                ee.Algorithms.IsEqual(soil_moisture, None),
+                15,
+                ee.Number(soil_moisture).multiply(100).min(30)
+            )
+        )
         .max(0)
         .min(100),
     )
     funding_readiness = ee.Algorithms.If(
         ee.Algorithms.IsEqual(production_reliability, None),
         None,
-        ee.Number(production_reliability).multiply(0.7)
-        .add(ee.Number(100).subtract(safe_number(forest_summary["loss_pct"], 0)).multiply(0.3))
+        ee.Number(production_reliability).multiply(0.55)
+        .add(ee.Number(100).subtract(safe_number(forest_summary["loss_pct"], 0)).multiply(0.15))
+        .add(
+            ee.Algorithms.If(
+                ee.Algorithms.IsEqual(flood_risk, None),
+                15,
+                ee.Number(100).subtract(ee.Number(flood_risk).min(100)).multiply(0.15)
+            )
+        )
+        .add(
+            ee.Algorithms.If(
+                ee.Algorithms.IsEqual(travel_time_to_market, None),
+                15,
+                ee.Number(100).subtract(ee.Number(travel_time_to_market).divide(3).min(100)).multiply(0.15)
+            )
+        )
         .max(0)
         .min(100),
     )
@@ -687,6 +823,14 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
         "irrigation_demand": irrigation_demand,
         "production_reliability": production_reliability,
         "funding_readiness": funding_readiness,
+        "soil_moisture": soil_moisture,
+        "evapotranspiration": evapotranspiration,
+        "groundwater_anomaly": groundwater_anomaly,
+        "soil_organic_carbon": soil_organic_carbon,
+        "soil_texture_class": soil_texture_class,
+        "flood_risk": flood_risk,
+        "fire_risk": fire_risk,
+        "travel_time_to_market": travel_time_to_market,
     })
 
     return metrics.getInfo()
