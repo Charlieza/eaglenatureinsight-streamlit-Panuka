@@ -49,7 +49,7 @@ def get_datasets():
     grace = ee.ImageCollection("NASA/GRACE/MASS_GRIDS_V04/LAND")
     soil_organic_carbon = ee.Image("OpenLandMap/SOL/SOL_ORGANIC-CARBON_USDA-6A1C_M/v02")
     soil_texture = ee.Image("OpenLandMap/SOL/SOL_TEXTURE-CLASS_USDA-TT_M/v02")
-    flood_hazard = ee.Image("JRC/CEMS_GLOFAS/FloodHazard/v2_1")
+    flood_hazard = ee.ImageCollection("JRC/CEMS_GLOFAS/FloodHazard/v2_1")
     fire_burned = ee.ImageCollection("MODIS/061/MCD64A1")
     market_access = ee.Image("projects/malariaatlasproject/assets/accessibility/accessibility_to_cities/2015_v1_0")
 
