@@ -48,6 +48,7 @@ def get_datasets():
 
     modis_et = ee.ImageCollection("MODIS/061/MOD16A2GF")
     smap_l4 = ee.ImageCollection("NASA/SMAP/SPL4SMGP/008")
+    srtm = ee.Image("USGS/SRTMGL1_003")
     grace = ee.ImageCollection("NASA/GRACE/MASS_GRIDS_V04/LAND")
     soil_organic_carbon = ee.Image("OpenLandMap/SOL/SOL_ORGANIC-CARBON_USDA-6A1C_M/v02")
     soil_texture = ee.Image("OpenLandMap/SOL/SOL_TEXTURE-CLASS_USDA-TT_M/v02")
@@ -73,6 +74,7 @@ def get_datasets():
         "MODIS_LST": modis_lst,
         "MODIS_ET": modis_et,
         "SMAP_L4": smap_l4,
+        "SRTM": srtm,
         "GRACE": grace,
         "SOIL_OC": soil_organic_carbon,
         "SOIL_TEXTURE": soil_texture,
@@ -134,6 +136,38 @@ def current_ndvi_image_and_mean(geom: ee.Geometry, last_full_year: int):
         maxPixels=1e13,
     ).get("NDVI")
     return ndvi, mean
+
+def sentinel2_index_means(geom: ee.Geometry, last_full_year: int):
+    img = current_sentinel_rgb(geom, last_full_year)
+    ndwi = img.normalizedDifference(["B3", "B8"]).rename("NDWI")
+    mndwi = img.normalizedDifference(["B3", "B11"]).rename("MNDWI")
+    ndmi = img.normalizedDifference(["B8", "B11"]).rename("NDMI")
+
+    def _mean(image: ee.Image, band: str):
+        return image.reduceRegion(
+            reducer=ee.Reducer.mean(),
+            geometry=geom,
+            scale=10,
+            maxPixels=1e13,
+            bestEffort=True,
+        ).get(band)
+
+    return {
+        "ndwi_current": _mean(ndwi, "NDWI"),
+        "mndwi_current": _mean(mndwi, "MNDWI"),
+        "ndmi_current": _mean(ndmi, "NDMI"),
+    }
+
+
+def elevation_mean(geom: ee.Geometry):
+    ds = get_datasets()
+    return _reduce_mean_first_band(ds["SRTM"].select("elevation"), geom, 30)
+
+
+def slope_mean(geom: ee.Geometry):
+    ds = get_datasets()
+    slope = ee.Terrain.slope(ds["SRTM"].select("elevation"))
+    return _reduce_mean_first_band(slope, geom, 30)
 
 
 
@@ -825,6 +859,17 @@ def water_presence_frequency_pct(geom: ee.Geometry, hist_end: int):
     return ee.Algorithms.If(ee.Algorithms.IsEqual(raw, None), None, ee.Number(raw).multiply(100))
 
 
+def _small_site_context_buffer_m(area_ha: float) -> float:
+    if area_ha is None:
+        return 0.0
+    if area_ha >= 5:
+        return 0.0
+    if area_ha <= 0:
+        return 150.0
+    equivalent_radius = ((area_ha * 10000.0) / 3.141592653589793) ** 0.5
+    return float(min(250.0, max(90.0, equivalent_radius * 2.5)))
+
+
 def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full_year: int):
     """
     Compute metrics in separate small Earth Engine calls to reduce the chance
@@ -842,6 +887,9 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
         bestEffort=True,
     ).get("area")
     total_area_ha = safe_number(total_area_ha_raw, 0)
+    site_area_ha = _get_info_safe(total_area_ha)
+    context_buffer_m = _small_site_context_buffer_m(site_area_ha)
+    context_geom = geom.buffer(context_buffer_m) if context_buffer_m > 0 else geom
 
     # Use lighter scales and per-metric evaluation.
     greenhouse_ha = detect_greenhouse_area_ha(geom, last_full_year)
@@ -855,23 +903,29 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
     lst_mean = lst_recent_mean_from_range(geom, hist_start, hist_end)
     ndvi_trend = series_recent_vs_early_delta(ndvi_hist)
 
-    soil_moisture = soil_moisture_mean(geom, hist_end)
-    evapotranspiration = evapotranspiration_mean(geom, hist_end)
-    groundwater_anomaly = groundwater_anomaly_mean(geom, hist_end)
+    soil_moisture = soil_moisture_mean(context_geom, hist_end)
+    evapotranspiration = evapotranspiration_mean(context_geom, hist_end)
+    groundwater_anomaly = groundwater_anomaly_mean(context_geom, hist_end)
     worldcover_tree_pct = landcover_pct(geom, 10)
     hansen_tree_pct = hansen_current_tree_cover_pct(geom, 10)
-    dynamic_world_tree_prob_pct = dynamic_world_class_probability_mean(geom, "trees", hist_end)
-    dynamic_world_water_prob_pct = dynamic_world_class_probability_mean(geom, "water", hist_end)
+    context_worldcover_tree_pct = landcover_pct(context_geom, 10)
+    context_hansen_tree_pct = hansen_current_tree_cover_pct(context_geom, 10)
+    dynamic_world_tree_prob_pct = dynamic_world_class_probability_mean(context_geom, "trees", hist_end)
+    dynamic_world_water_prob_pct = dynamic_world_class_probability_mean(context_geom, "water", hist_end)
     water_max_extent_pct = surface_water_max_extent_pct(geom)
     permanent_water_area_pct = permanent_water_pct(geom)
     seasonal_water_area_pct = seasonal_water_pct(geom)
-    water_seasonality_months = water_seasonality_mean_months(geom)
-    water_presence_frequency = water_presence_frequency_pct(geom, hist_end)
-    soil_organic_carbon = soil_organic_carbon_mean(geom)
-    soil_texture_class = soil_texture_class_mean(geom)
-    flood_risk = flood_risk_mean(geom)
-    fire_risk = fire_risk_mean(geom, hist_end)
-    travel_time_to_market = market_access_mean(geom)
+    water_seasonality_months = water_seasonality_mean_months(context_geom)
+    water_presence_frequency = water_presence_frequency_pct(context_geom, hist_end)
+    soil_organic_carbon = soil_organic_carbon_mean(context_geom)
+    soil_texture_class = soil_texture_class_mean(context_geom)
+    flood_risk = flood_risk_mean(context_geom)
+    fire_risk = fire_risk_mean(context_geom, hist_end)
+    travel_time_to_market = market_access_mean(context_geom)
+    context_water_occ = surface_water_occurrence_mean(context_geom)
+    current_water_indices = sentinel2_index_means(context_geom, last_full_year)
+    elevation = elevation_mean(context_geom)
+    slope = slope_mean(context_geom)
 
     water_reliability = ee.Algorithms.If(
         ee.Algorithms.IsEqual(rain_anom_pct, None),
@@ -970,19 +1024,26 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
         "ndvi_trend": ndvi_trend,
         "rain_anom_pct": rain_anom_pct,
         "lst_mean": lst_mean,
-        "tree_pct": ee.Number(safe_number(worldcover_tree_pct, 0)).max(safe_number(hansen_tree_pct, 0)),
+        "tree_pct": ee.Number(safe_number(worldcover_tree_pct, 0))
+        .max(safe_number(hansen_tree_pct, 0))
+        .max(ee.Number(safe_number(dynamic_world_tree_prob_pct, 0))),
         "worldcover_tree_pct": worldcover_tree_pct,
         "hansen_tree_pct": hansen_tree_pct,
         "dynamic_world_tree_prob_pct": dynamic_world_tree_prob_pct,
+        "context_tree_pct": ee.Number(safe_number(context_worldcover_tree_pct, 0)).max(safe_number(context_hansen_tree_pct, 0)).max(safe_number(dynamic_world_tree_prob_pct, 0)),
         "cropland_pct": landcover_pct(geom, 40),
         "built_pct": landcover_pct(geom, 50),
-        "water_occ": surface_water_occurrence_mean(geom),
+        "water_occ": ee.Number(safe_number(surface_water_occurrence_mean(geom), 0)).max(safe_number(dynamic_world_water_prob_pct, 0)),
+        "context_water_occ": ee.Number(safe_number(context_water_occ, 0)).max(safe_number(dynamic_world_water_prob_pct, 0)),
         "water_max_extent_pct": water_max_extent_pct,
         "permanent_water_area_pct": permanent_water_area_pct,
         "seasonal_water_area_pct": seasonal_water_area_pct,
         "water_seasonality_months": water_seasonality_months,
         "water_presence_frequency": water_presence_frequency,
         "dynamic_world_water_prob_pct": dynamic_world_water_prob_pct,
+        "ndwi_current": current_water_indices["ndwi_current"],
+        "mndwi_current": current_water_indices["mndwi_current"],
+        "ndmi_current": current_water_indices["ndmi_current"],
         "bio_proxy": bio_proxy_mean(geom),
         "forest_ha": forest_summary["forest_ha"],
         "forest_loss_ha": forest_summary["loss_ha"],
@@ -1002,9 +1063,14 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
         "groundwater_anomaly": groundwater_anomaly,
         "soil_organic_carbon": soil_organic_carbon,
         "soil_texture_class": soil_texture_class,
+        "elevation_mean": elevation,
+        "slope_mean": slope,
         "flood_risk": flood_risk,
         "fire_risk": fire_risk,
         "travel_time_to_market": travel_time_to_market,
+        "analysis_context_buffer_m": context_buffer_m,
+        "analysis_context_area_ha": ee.Algorithms.If(context_buffer_m > 0, context_geom.area(1).divide(10000), total_area_ha),
+        "small_site_context_applied": context_buffer_m > 0,
     }
 
     results = {}
