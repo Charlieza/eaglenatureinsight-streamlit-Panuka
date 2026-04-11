@@ -20,17 +20,16 @@ from utils.ee_helpers import (
     ndvi_with_polygon,
     landcover_with_polygon,
     forest_loss_with_polygon,
+    flood_risk_with_polygon,
+    soil_condition_with_polygon,
+    heat_stress_with_polygon,
     vegetation_change_with_polygon,
     image_thumb_url,
     landsat_annual_ndvi_collection,
     annual_rain_collection,
     annual_lst_collection,
-    annual_soil_moisture_collection,
-    annual_evapotranspiration_collection,
     forest_loss_by_year_collection,
     water_history_collection,
-    water_proximity_with_polygon,
-    terrain_wetness_with_polygon,
     landcover_feature_collection,
 )
 from utils.scoring import build_risk_and_recommendations
@@ -39,8 +38,8 @@ from utils.pdf_report import build_pdf_report
 
 st.set_page_config(page_title="EagleNatureInsight", layout="wide")
 
-APP_TITLE = "EagleNatureInsight"
-APP_SUBTITLE = "Nature Intelligence Dashboard for SMEs"
+APP_TITLE = "EagleNatureInsight | Panuka Pilot"
+APP_SUBTITLE = "TNFD LEAP agribusiness dashboard for Panuka AgriBiz Hub"
 APP_TAGLINE = "Locate • Evaluate • Assess • Prepare"
 
 CURRENT_YEAR = date.today().year
@@ -49,42 +48,36 @@ LAST_FULL_YEAR = CURRENT_YEAR - 1
 LOGO_PATH = Path("assets/logo.png")
 
 PRESET_TO_CATEGORY = {
-    "Panuka AgriBiz Hub": "Agriculture / Agribusiness",
-    "BL Turner Group": "Water / Circular economy",
+    "Panuka Site 1": "Agriculture / Agribusiness",
+    "Panuka Site 2": "Agriculture / Agribusiness",
 }
 
 PRESET_TO_LOCATION = {
-    "Panuka AgriBiz Hub": {"lat": -15.3875, "lon": 28.3228, "buffer_m": 1500, "zoom": 12},
-    "BL Turner Group": {"lat": -29.9167, "lon": 31.0218, "buffer_m": 1000, "zoom": 13},
+    "Panuka Site 1": {"lat": -15.251194, "lon": 28.144500, "buffer_m": 1200, "zoom": 15},
+    "Panuka Site 2": {"lat": -15.251472, "lon": 28.147417, "buffer_m": 1200, "zoom": 15},
 }
 
 PRESETS = [
-    "Select Business / Area",
-    "Panuka AgriBiz Hub",
-    "BL Turner Group",
+    "Select Panuka Site",
+    "Panuka Site 1",
+    "Panuka Site 2",
 ]
 
 CATEGORIES = [
     "Agriculture / Agribusiness",
-    "Food processing / Supply chain",
-    "Manufacturing / Industrial",
-    "Water / Circular economy",
-    "Energy / Infrastructure",
-    "Property / Built environment",
-    "General SME",
 ]
 
 
 def init_state():
     defaults = {
-        "preset_selector": "Select Business / Area",
-        "active_preset": "Select Business / Area",
-        "category_selector": "General SME",
+        "preset_selector": "Select Panuka Site",
+        "active_preset": "Select Panuka Site",
+        "category_selector": "Agriculture / Agribusiness",
         "lat_input": "",
         "lon_input": "",
         "buffer_input": 1000,
-        "map_center": [-25.0, 24.0],
-        "map_zoom": 5,
+        "map_center": [-15.251194, 28.144500],
+        "map_zoom": 15,
         "draw_mode": "Draw polygon",
         "last_drawn_geojson": None,
         "report_payload": None,
@@ -113,14 +106,16 @@ def apply_preset(preset: str):
 def preset_changed():
     preset = st.session_state["preset_selector"]
     st.session_state["active_preset"] = preset
-    if preset != "Select Business / Area":
+    if preset != "Select Panuka Site":
         apply_preset(preset)
+    st.rerun()
 
 
 def build_map(center, zoom, draw_mode, lat=None, lon=None, buffer_m=None, existing_geojson=None):
     m = folium.Map(
         location=center,
         zoom_start=zoom,
+        min_zoom=5,
         control_scale=True,
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         attr="Esri Satellite",
@@ -149,24 +144,71 @@ def build_map(center, zoom, draw_mode, lat=None, lon=None, buffer_m=None, existi
             },
         ).add_to(m)
 
-    if draw_mode == "Enter coordinates":
-        try:
-            lat_val = float(lat)
-            lon_val = float(lon)
-            folium.Marker([lat_val, lon_val], tooltip="Selected point").add_to(m)
-            if buffer_m:
-                folium.Circle(
-                    [lat_val, lon_val],
-                    radius=float(buffer_m),
-                    color="#ff0000",
-                    weight=2,
-                    fill=False,
-                ).add_to(m)
-        except (TypeError, ValueError):
-            pass
+    active_name = None
+    active_lat = None
+    active_lon = None
+    try:
+        if lat not in [None, "", "None"] and lon not in [None, "", "None"]:
+            active_lat = float(lat)
+            active_lon = float(lon)
+    except (TypeError, ValueError):
+        active_lat = None
+        active_lon = None
+
+    site_points = [
+        ("Panuka Site 1", PRESET_TO_LOCATION["Panuka Site 1"]["lat"], PRESET_TO_LOCATION["Panuka Site 1"]["lon"]),
+        ("Panuka Site 2", PRESET_TO_LOCATION["Panuka Site 2"]["lat"], PRESET_TO_LOCATION["Panuka Site 2"]["lon"]),
+    ]
+
+    fg = folium.FeatureGroup(name="Panuka pilot sites")
+    bounds = []
+    for name, plat, plon in site_points:
+        bounds.append([plat, plon])
+        is_active = active_lat is not None and active_lon is not None and abs(active_lat - plat) < 0.0008 and abs(active_lon - plon) < 0.0008
+        if is_active:
+            active_name = name
+            folium.CircleMarker(
+                location=[plat, plon],
+                radius=14,
+                color="#60a5fa",
+                weight=2,
+                fill=True,
+                fill_color="#93c5fd",
+                fill_opacity=0.35,
+                opacity=0.8,
+                popup=folium.Popup(f"<b>{name}</b><br>Selected site", max_width=220),
+                tooltip=f"{name} (selected)",
+            ).add_to(fg)
+
+        folium.CircleMarker(
+            location=[plat, plon],
+            radius=9 if is_active else 7,
+            color="#163d63" if is_active else "#1f8f5f",
+            weight=3 if is_active else 2,
+            fill=True,
+            fill_color="#163d63" if is_active else "#1f8f5f",
+            fill_opacity=0.95,
+            popup=folium.Popup(f"<b>{name}</b>", max_width=220),
+            tooltip=name,
+        ).add_to(fg)
+
+    fg.add_to(m)
+
+    if draw_mode == "Enter coordinates" and active_lat is not None and active_lon is not None:
+        folium.Circle(
+            [active_lat, active_lon],
+            radius=float(buffer_m or 1000),
+            color="#ff0000",
+            weight=2,
+            fill=False,
+        ).add_to(m)
+
+    if len(bounds) == 2:
+        # Keep both pilot sites visible and avoid over-zooming, which can cause
+        # the temporary "map data not yet available" tile message.
+        m.fit_bounds(bounds, padding=(35, 35), max_zoom=14)
 
     return m
-
 
 def extract_drawn_geometry(map_data):
     if not map_data:
@@ -245,85 +287,746 @@ def fmt_num(val, digits=1, suffix=""):
         return "—"
 
 
-def build_overview_content(preset: str, category: str, metrics: dict, risk: dict) -> dict:
-    ndvi_current = metrics.get("ndvi_current")
-    ndvi_trend = metrics.get("ndvi_trend")
-    rain_anom_pct = metrics.get("rain_anom_pct")
-    tree_pct = metrics.get("tree_pct")
-    built_pct = metrics.get("built_pct")
-    water_occ = metrics.get("water_occ")
-    forest_loss_pct = metrics.get("forest_loss_pct")
-    lst_mean = metrics.get("lst_mean")
 
-    narrative = (
-        "This overview screens how the selected site interacts with nature and highlights the main "
-        "conditions and trends a business should pay attention to first. It is designed as an early "
-        "screening output, not a substitute for detailed field assessment."
-    )
 
+
+def classify_indicator(metric_name, value):
+    try:
+        if value is None or value == "":
+            return "Not available"
+        v = float(value)
+    except Exception:
+        return "Not available"
+
+    if metric_name == "rain_anom_pct":
+        if v <= -20:
+            return "High concern"
+        if v <= -10:
+            return "Warning"
+        if v <= -5:
+            return "Watch"
+        return "Favourable"
+
+    if metric_name == "soil_moisture":
+        if v < 0.12:
+            return "High concern"
+        if v < 0.18:
+            return "Warning"
+        if v < 0.25:
+            return "Watch"
+        return "Favourable"
+
+    if metric_name == "lst_mean":
+        if v > 33:
+            return "High concern"
+        if v > 30:
+            return "Warning"
+        if v > 28:
+            return "Watch"
+        return "Favourable"
+
+    if metric_name == "flood_risk":
+        if v >= 0.5:
+            return "High concern"
+        if v >= 0.2:
+            return "Warning"
+        if v > 0:
+            return "Watch"
+        return "Favourable"
+
+    if metric_name == "water_occ":
+        if v < 5:
+            return "Warning"
+        if v < 15:
+            return "Watch"
+        return "Favourable"
+
+    if metric_name == "ndvi_current":
+        if v < 0.2:
+            return "High concern"
+        if v < 0.35:
+            return "Warning"
+        if v < 0.5:
+            return "Watch"
+        return "Favourable"
+
+    if metric_name == "ndvi_trend":
+        if v < -0.05:
+            return "High concern"
+        if v < -0.02:
+            return "Warning"
+        if v < 0:
+            return "Watch"
+        return "Favourable"
+
+    if metric_name == "evapotranspiration":
+        if v > 25:
+            return "Warning"
+        if v > 18:
+            return "Watch"
+        return "Favourable"
+
+    if metric_name == "travel_time_to_market":
+        if v > 180:
+            return "High concern"
+        if v > 120:
+            return "Warning"
+        if v > 60:
+            return "Watch"
+        return "Favourable"
+
+    if metric_name == "fire_risk":
+        if v > 10:
+            return "Warning"
+        if v > 0:
+            return "Watch"
+        return "Favourable"
+
+    return "Watch"
+
+
+def status_scale_text(metric_name):
+    scales = {
+        "rain_anom_pct": "Favourable > -5%; Watch -5% to -10%; Warning -10% to -20%; High concern below -20%",
+        "soil_moisture": "Favourable >= 0.25; Watch 0.18 to 0.25; Warning 0.12 to 0.18; High concern below 0.12",
+        "lst_mean": "Favourable <= 28°C; Watch 28–30°C; Warning 30–33°C; High concern above 33°C",
+        "flood_risk": "Favourable = 0 m; Watch 0–0.2 m; Warning 0.2–0.5 m; High concern above 0.5 m",
+        "water_occ": "Favourable >= 15; Watch 5–15; Warning below 5",
+        "ndvi_current": "Favourable >= 0.50; Watch 0.35–0.50; Warning 0.20–0.35; High concern below 0.20",
+        "ndvi_trend": "Favourable >= 0; Watch 0 to -0.02; Warning -0.02 to -0.05; High concern below -0.05",
+        "evapotranspiration": "Favourable <= 18; Watch 18–25; Warning above 25",
+        "travel_time_to_market": "Favourable <= 60 min; Watch 60–120 min; Warning 120–180 min; High concern above 180 min",
+        "fire_risk": "Favourable = 0; Watch 0–10; Warning above 10",
+    }
+    return scales.get(metric_name, "Site screening scale")
+def exposure_level(value, low_bad, low_threshold, high_threshold):
+    if value is None:
+        return "Unknown"
+    try:
+        v = float(value)
+    except Exception:
+        return "Unknown"
+    if low_bad:
+        if v <= low_threshold:
+            return "High"
+        if v <= high_threshold:
+            return "Moderate"
+        return "Low"
+    if v >= high_threshold:
+        return "High"
+    if v >= low_threshold:
+        return "Moderate"
+    return "Low"
+
+
+def build_overview_content(preset, category, metrics, risk):
     findings = []
-    if ndvi_trend is not None and ndvi_trend < -0.03:
-        findings.append("Vegetation condition around the site has been declining over time.")
-    if rain_anom_pct is not None and rain_anom_pct < -10:
-        findings.append("Recent rainfall is below the long-term baseline, which may increase water stress.")
-    if forest_loss_pct is not None and forest_loss_pct > 5:
-        findings.append("Tree loss has been detected in the surrounding landscape.")
-    if water_occ is not None and water_occ < 5:
-        findings.append("Visible surface water is limited in the surrounding landscape.")
-    if built_pct is not None and built_pct > 35:
-        findings.append("A large share of the area is built-up, which can increase heat and reduce ecological function.")
-    if tree_pct is not None and tree_pct < 10:
-        findings.append("Tree cover is limited, which may reduce natural buffering and resilience.")
-    if lst_mean is not None and lst_mean > 30:
-        findings.append("Land surface temperatures are high, which may increase operational heat stress.")
+    ndvi_current = metrics.get("ndvi_current")
+    rain_anom = metrics.get("rain_anom_pct")
+    ndvi_trend = metrics.get("ndvi_trend")
+
+    if ndvi_current is not None:
+        try:
+            if float(ndvi_current) < 0.25:
+                findings.append("Current vegetation condition is low and may indicate stressed or sparse vegetation in the assessed area.")
+            elif float(ndvi_current) < 0.45:
+                findings.append("Current vegetation condition is moderate, suggesting mixed vegetation performance across the site.")
+            else:
+                findings.append("Current vegetation condition is relatively strong, suggesting healthier vegetation cover in the assessed area.")
+        except Exception:
+            pass
+
+    if ndvi_trend is not None:
+        try:
+            if float(ndvi_trend) < -0.03:
+                findings.append("Historical vegetation trend is declining, which may point to growing ecological or land-management pressure.")
+            elif float(ndvi_trend) > 0.03:
+                findings.append("Historical vegetation trend is improving, which may reflect better ground cover or recovering vegetation.")
+        except Exception:
+            pass
+
+    if rain_anom is not None:
+        try:
+            if float(rain_anom) < -10:
+                findings.append("Recent rainfall is below the long-term baseline, which may increase water uncertainty for farming activities.")
+            elif float(rain_anom) > 10:
+                findings.append("Recent rainfall is above the long-term baseline, which may improve water availability but can also shift runoff and pest conditions.")
+        except Exception:
+            pass
+
+    try:
+        tree_pct = metrics.get("tree_pct")
+        dw_tree = metrics.get("dynamic_world_tree_prob_pct")
+        hansen_tree = metrics.get("hansen_tree_pct")
+        if tree_pct is not None and float(tree_pct) < 1 and ((dw_tree is not None and float(dw_tree) > 5) or (hansen_tree is not None and float(hansen_tree) > 1)):
+            findings.append("The strict land-cover tree class is very low, but supplementary forest datasets still detect some woody vegetation signal, so this area should be read as having limited rather than absent tree cover.")
+    except Exception:
+        pass
+
+    try:
+        water_occ = metrics.get("water_occ")
+        water_extent = metrics.get("water_max_extent_pct")
+        seasonal_water = metrics.get("seasonal_water_area_pct")
+        if water_occ is not None and float(water_occ) < 5 and ((water_extent is not None and float(water_extent) > 0) or (seasonal_water is not None and float(seasonal_water) > 0)):
+            findings.append("Visible water occurrence is low, but supplementary water layers still show some seasonal or occasional water presence in the surrounding landscape.")
+    except Exception:
+        pass
 
     if not findings:
-        findings.append("No major warning signal stands out immediately, but the site should still be monitored over time.")
+        findings.append("The site shows a mix of environmental signals that should be monitored over time rather than interpreted from a single indicator.")
 
-    findings = findings[:3]
+    narrative = (
+        "This overview gives a plain-language summary of the Panuka pilot site, highlighting the most important nature-related signals "
+        "for agribusiness screening and decision support. It is designed to help users quickly understand what the site depends on, "
+        "what may be changing, and where further attention may be needed."
+    )
 
-    if category == "Agriculture / Agribusiness":
-        business_relevance = (
-            "For an agribusiness, these conditions matter because vegetation, rainfall, tree cover, and water "
-            "availability can influence productivity, soil protection, pollination, and resilience."
-        )
-    elif category == "Food processing / Supply chain":
-        business_relevance = (
-            "For a food or supply-chain business, these conditions matter because environmental pressure in "
-            "sourcing landscapes can affect supply reliability, quality, and climate resilience."
-        )
-    elif category == "Manufacturing / Industrial":
-        business_relevance = (
-            "For a manufacturing or industrial site, these conditions matter because heat, low vegetation, and "
-            "land-cover pressure can affect worker comfort, site resilience, and future compliance expectations."
-        )
-    elif category == "Water / Circular economy":
-        business_relevance = (
-            "For a water or circular-economy business, these conditions matter because local water context, heat, "
-            "and ecological condition can affect water security and operational resilience."
-        )
-    elif category == "Energy / Infrastructure":
-        business_relevance = (
-            "For energy or infrastructure operations, these conditions matter because site expansion, ecological "
-            "sensitivity, and surrounding land-cover change can create environmental and transition risks."
-        )
-    elif category == "Property / Built environment":
-        business_relevance = (
-            "For a built-environment or property site, these conditions matter because low vegetation, heat, and "
-            "built-up intensity can affect site quality, comfort, and future retrofit needs."
-        )
-    else:
-        business_relevance = (
-            "These conditions matter because they provide an early view of how the site depends on and may be "
-            "affected by surrounding ecological change."
-        )
+    business_relevance = (
+        "For Panuka, these results matter because water reliability, vegetation condition, and rainfall variability can affect farm resilience, "
+        "training and incubation support, production planning, and the way environmental performance is communicated to partners or funders."
+    )
 
     return {
         "narrative": narrative,
-        "findings": findings,
+        "findings": findings[:3],
         "business_relevance": business_relevance,
     }
 
+
+
+
+
+
+def build_tnfd_matrix(metrics):
+    items = [
+        {
+            "metric_name": "water_occ",
+            "indicator": "Water availability",
+            "value": fmt_num(metrics.get("water_occ"), 1),
+            "meaning": f"Visible surface-water occurrence is {fmt_num(metrics.get('water_occ'), 1)}, which helps indicate whether the site may rely more heavily on irrigation, boreholes, or storage.",
+            "response": f"Use the current water-occurrence value of {fmt_num(metrics.get('water_occ'), 1)} to guide storage and irrigation planning.",
+        },
+        {
+            "metric_name": "lst_mean",
+            "indicator": "Heat stress",
+            "value": fmt_num(metrics.get("lst_mean"), 1, " °C"),
+            "meaning": f"Land surface temperature is {fmt_num(metrics.get('lst_mean'), 1, ' °C')}, which indicates the current level of heat pressure on crops, workers, and protected-farming areas.",
+            "response": f"If temperatures remain around {fmt_num(metrics.get('lst_mean'), 1, ' °C')}, strengthen shading, ventilation, and heat management.",
+        },
+        {
+            "metric_name": "ndvi_current",
+            "indicator": "Vegetation condition",
+            "value": fmt_num(metrics.get("ndvi_current"), 3),
+            "meaning": f"Current NDVI is {fmt_num(metrics.get('ndvi_current'), 3)}, which gives a simple signal of vegetation strength and possible plant stress.",
+            "response": f"Use the current NDVI value of {fmt_num(metrics.get('ndvi_current'), 3)} together with field checks and crop observations.",
+        },
+        {
+            "metric_name": "ndvi_trend",
+            "indicator": "Vegetation trend",
+            "value": fmt_num(metrics.get("ndvi_trend"), 3),
+            "meaning": f"Vegetation trend is {fmt_num(metrics.get('ndvi_trend'), 3)}, showing whether vegetation is improving, stable, or weakening over time.",
+            "response": f"Monitor soil moisture, crop stress, and local management conditions while the vegetation trend remains {fmt_num(metrics.get('ndvi_trend'), 3)}.",
+        },
+        {
+            "metric_name": "rain_anom_pct",
+            "indicator": "Rainfall variability",
+            "value": fmt_num(metrics.get("rain_anom_pct"), 1, "%"),
+            "meaning": f"Rainfall anomaly is {fmt_num(metrics.get('rain_anom_pct'), 1, '%')}, which shows how current rainfall conditions compare with the historical baseline.",
+            "response": f"Adjust irrigation and seasonal planning in response to the current rainfall anomaly of {fmt_num(metrics.get('rain_anom_pct'), 1, '%')}.",
+        },
+        {
+            "metric_name": "soil_moisture",
+            "indicator": "Soil moisture",
+            "value": fmt_num(metrics.get("soil_moisture"), 3),
+            "meaning": f"Soil moisture is {fmt_num(metrics.get('soil_moisture'), 3)}, which indicates current near-surface wetness and short-term crop water conditions.",
+            "response": f"Use the current soil-moisture value of {fmt_num(metrics.get('soil_moisture'), 3)} to guide irrigation timing and field checks.",
+        },
+        {
+            "metric_name": "evapotranspiration",
+            "indicator": "Evapotranspiration",
+            "value": fmt_num(metrics.get("evapotranspiration"), 1),
+            "meaning": f"Evapotranspiration is {fmt_num(metrics.get('evapotranspiration'), 1)}, which indicates how much water crops may be losing to the atmosphere.",
+            "response": f"If evapotranspiration remains near {fmt_num(metrics.get('evapotranspiration'), 1)}, review crop water demand and irrigation supply.",
+        },
+        {
+            "metric_name": "flood_risk",
+            "indicator": "Flood hazard",
+            "value": fmt_num(metrics.get("flood_risk"), 2, " m"),
+            "meaning": f"Mapped flood depth is {fmt_num(metrics.get('flood_risk'), 2, ' m')} for a 1-in-100-year event, which helps indicate possible flood exposure.",
+            "response": f"Use the current flood-depth value of {fmt_num(metrics.get('flood_risk'), 2, ' m')} in drainage and infrastructure planning.",
+        },
+        {
+            "metric_name": "travel_time_to_market",
+            "indicator": "Market access",
+            "value": fmt_num(metrics.get("travel_time_to_market"), 0, " min"),
+            "meaning": f"Estimated travel time to market is {fmt_num(metrics.get('travel_time_to_market'), 0, ' min')}, which gives a simple logistics and market-access context for SME operations.",
+            "response": f"Use the current travel-time value of {fmt_num(metrics.get('travel_time_to_market'), 0, ' min')} in logistics and market-readiness planning.",
+        },
+        {
+            "metric_name": "fire_risk",
+            "indicator": "Fire exposure",
+            "value": fmt_num(metrics.get("fire_risk"), 1),
+            "meaning": f"The recent burned-area indicator is {fmt_num(metrics.get('fire_risk'), 1)}, which helps indicate whether there is some current fire-related signal in the landscape.",
+            "response": f"If the burned-area indicator remains near {fmt_num(metrics.get('fire_risk'), 1)}, review firebreaks and dry-season risk planning.",
+        },
+    ]
+    for item in items:
+        item["status"] = classify_indicator(item["metric_name"], metrics.get(item["metric_name"]))
+        item["scale"] = status_scale_text(item["metric_name"])
+    return items
+
+
+def build_overall_environmental_interpretation(metrics):
+    statements = []
+    try:
+        rain = metrics.get("rain_anom_pct")
+        if rain is not None and float(rain) < -10:
+            statements.append(f"Rainfall conditions are currently {fmt_num(rain, 1, '%')}, which suggests higher irrigation demand and closer water planning may be needed.")
+    except Exception:
+        pass
+
+    try:
+        lst = metrics.get("lst_mean")
+        if lst is not None and float(lst) > 30:
+            statements.append(f"Average land surface temperature is {fmt_num(lst, 1, ' °C')}, which suggests elevated heat conditions that may increase crop stress and water demand.")
+    except Exception:
+        pass
+
+    try:
+        trend = metrics.get("ndvi_trend")
+        if trend is not None and float(trend) < 0:
+            statements.append(f"The vegetation trend is {fmt_num(trend, 3)}, which may indicate moisture, soil, or management-related stress in part of the landscape.")
+    except Exception:
+        pass
+
+    try:
+        sm = metrics.get("soil_moisture")
+        if sm is not None and float(sm) < 0.15:
+            statements.append(f"Soil moisture is {fmt_num(sm, 3)}, which suggests drier near-surface conditions and the need for closer irrigation attention.")
+    except Exception:
+        pass
+
+    try:
+        flood = metrics.get("flood_risk")
+        if flood is not None and float(flood) > 0.1:
+            statements.append(f"Flood hazard is {fmt_num(flood, 2)}, which suggests site drainage and low-lying infrastructure should be reviewed.")
+    except Exception:
+        pass
+
+    try:
+        access = metrics.get("travel_time_to_market")
+        if access is not None and float(access) > 60:
+            statements.append(f"Travel time to market is about {fmt_num(access, 1, ' minutes')}, which may create logistics pressure for some SMEs.")
+    except Exception:
+        pass
+
+    if not statements:
+        statements.append("Environmental conditions appear broadly stable based on the available indicators, although seasonal monitoring remains important.")
+    return statements
+
+
+
+def build_automated_risk_flags(metrics):
+    flags = []
+
+    def add_flag(level, title, current_value, meaning, action):
+        flags.append({
+            "Level": level,
+            "Flag": title,
+            "Current value": current_value,
+            "Why it matters": meaning,
+            "Suggested action": action,
+        })
+
+    try:
+        val = metrics.get("rain_anom_pct")
+        if val is not None:
+            f = float(val)
+            if f <= -15:
+                add_flag(
+                    "High",
+                    "Dry conditions",
+                    f"{f:.1f}%",
+                    f"Rainfall is {abs(f):.1f}% below the historical baseline, which can increase irrigation demand and crop stress.",
+                    f"Strengthen irrigation planning and review storage capacity while rainfall remains {abs(f):.1f}% below baseline.",
+                )
+            elif f >= 15:
+                add_flag(
+                    "Moderate",
+                    "Wet conditions",
+                    f"{f:.1f}%",
+                    f"Rainfall is {f:.1f}% above the historical baseline, which can increase drainage pressure, disease risk, or waterlogging in some areas.",
+                    f"Review drainage and crop inspection while rainfall remains {f:.1f}% above baseline.",
+                )
+    except Exception:
+        pass
+
+    try:
+        val = metrics.get("lst_mean")
+        if val is not None:
+            f = float(val)
+            if f >= 30:
+                add_flag(
+                    "High",
+                    "Heat stress",
+                    f"{f:.1f} °C",
+                    f"Land surface temperature is {f:.1f} °C, which indicates elevated heat conditions for crops, workers, and protected-farming environments.",
+                    f"Review shading, ventilation, and irrigation scheduling while heat conditions remain around {f:.1f} °C.",
+                )
+            elif f >= 28:
+                add_flag(
+                    "Moderate",
+                    "Warm conditions",
+                    f"{f:.1f} °C",
+                    f"Land surface temperature is {f:.1f} °C, suggesting warming conditions that should be monitored.",
+                    f"Increase heat monitoring if temperatures stay near {f:.1f} °C.",
+                )
+    except Exception:
+        pass
+
+    try:
+        val = metrics.get("soil_moisture")
+        if val is not None:
+            f = float(val)
+            if f < 0.15:
+                add_flag(
+                    "High",
+                    "Low soil moisture",
+                    f"{f:.3f}",
+                    f"Soil moisture is {f:.3f}, which suggests dry near-surface conditions and possible short-term crop water stress.",
+                    f"Check irrigation timing and soil moisture trends while surface moisture remains near {f:.3f}.",
+                )
+            elif f < 0.25:
+                add_flag(
+                    "Moderate",
+                    "Moderate soil moisture",
+                    f"{f:.3f}",
+                    f"Soil moisture is {f:.3f}, which is workable but should be monitored closely.",
+                    f"Track soil moisture and crop response while moisture remains near {f:.3f}.",
+                )
+    except Exception:
+        pass
+
+    try:
+        val = metrics.get("flood_risk")
+        if val is not None:
+            f = float(val)
+            if f >= 0.5:
+                add_flag(
+                    "High",
+                    "Flood exposure",
+                    f"{f:.2f} m",
+                    f"Mapped 1-in-100-year flood depth is {f:.2f} m, which may affect fields, access routes, or infrastructure.",
+                    f"Review drainage and infrastructure placement where mapped flood depth is around {f:.2f} m.",
+                )
+            elif f > 0.1:
+                add_flag(
+                    "Moderate",
+                    "Flood sensitivity",
+                    f"{f:.2f} m",
+                    f"Mapped flood depth is {f:.2f} m, which suggests some flood exposure in the wider site context.",
+                    f"Check vulnerable low-lying areas while mapped flood depth remains around {f:.2f} m.",
+                )
+    except Exception:
+        pass
+
+    try:
+        val = metrics.get("fire_risk")
+        if val is not None:
+            f = float(val)
+            if f > 5:
+                add_flag(
+                    "Moderate",
+                    "Recent burned-area signal",
+                    f"{f:.1f}",
+                    f"The burned-area indicator is {f:.1f}, which suggests some recent fire signal in the production landscape.",
+                    f"Review firebreaks and dry-season planning while the recent burned-area signal remains {f:.1f}.",
+                )
+    except Exception:
+        pass
+
+    try:
+        val = metrics.get("greenhouse_pest_risk")
+        if val is not None:
+            f = float(val)
+            if f >= 70:
+                add_flag(
+                    "High",
+                    "Protected-farming pest pressure",
+                    f"{f:.0f}/100",
+                    f"The greenhouse pest-risk proxy is {f:.0f}/100, suggesting elevated pressure under current heat and humidity conditions.",
+                    f"Increase greenhouse inspection frequency while the pest-risk proxy remains {f:.0f}/100.",
+                )
+            elif f >= 50:
+                add_flag(
+                    "Moderate",
+                    "Protected-farming pest watch",
+                    f"{f:.0f}/100",
+                    f"The greenhouse pest-risk proxy is {f:.0f}/100, suggesting conditions that merit closer inspection.",
+                    f"Maintain regular greenhouse scouting while the pest-risk proxy remains {f:.0f}/100.",
+                )
+    except Exception:
+        pass
+
+    try:
+        val = metrics.get("travel_time_to_market")
+        if val is not None:
+            f = float(val)
+            if f > 120:
+                add_flag(
+                    "Moderate",
+                    "Market-access constraint",
+                    f"{f:.0f} min",
+                    f"Estimated travel time to market is {f:.0f} minutes, which may affect logistics, spoilage risk, or market access for some SMEs.",
+                    f"Use the {f:.0f}-minute travel time context in logistics and market-readiness planning.",
+                )
+    except Exception:
+        pass
+
+    if not flags:
+        add_flag(
+            "Monitor",
+            "No dominant automated flag",
+            "Current conditions",
+            "The current metric set does not show one dominant automated warning sign, but seasonal review remains important.",
+            "Continue routine monitoring and update the assessment as conditions change.",
+        )
+
+    return flags
+
+
+def make_rainfall_ndvi_df(ndvi_hist_df, rain_hist_df):
+    if ndvi_hist_df.empty or rain_hist_df.empty:
+        return pd.DataFrame()
+    df = ndvi_hist_df.rename(columns={"value": "ndvi_mean"}).merge(
+        rain_hist_df.rename(columns={"value": "rainfall_mm"}), on="year", how="inner"
+    )
+    df["rain_anom_pct_proxy"] = (
+        (df["rainfall_mm"] - df["rainfall_mm"].mean()) / df["rainfall_mm"].mean() * 100
+        if df["rainfall_mm"].mean() not in [0, None]
+        else 0
+    )
+    return df
+
+
+def rainfall_ndvi_scatter_to_png_bytes(df):
+    if df.empty:
+        return None
+    fig = px.scatter(
+        df,
+        x="rain_anom_pct_proxy",
+        y="ndvi_mean",
+        hover_data=["year"],
+        title="Rainfall vs Vegetation Health",
+        labels={"rain_anom_pct_proxy": "Rainfall anomaly proxy (%)", "ndvi_mean": "NDVI"},
+        trendline="ols",
+    )
+    img = BytesIO()
+    fig.write_image(img, format="png", width=1200, height=700)
+    return img.getvalue()
+
+
+def water_balance_proxy_to_png_bytes(rain_hist_df, metrics):
+    if rain_hist_df.empty:
+        return None
+    recent_rain = float(rain_hist_df["value"].tail(min(3, len(rain_hist_df))).mean()) if len(rain_hist_df) else 0.0
+    et = metrics.get("evapotranspiration")
+    if et is None:
+        return None
+    df = pd.DataFrame({
+        "Measure": ["Recent rainfall mean", "Current evapotranspiration"],
+        "Value": [recent_rain, float(et)],
+    })
+    fig = px.bar(df, x="Measure", y="Value", title="Water Balance Proxy", text="Value")
+    img = BytesIO()
+    fig.write_image(img, format="png", width=1200, height=700)
+    return img.getvalue()
+
+
+def risk_flags_to_dataframe(flags):
+    df = pd.DataFrame(flags)
+    if df.empty:
+        return df
+    return df.fillna("Not available").astype(str)
+
+def build_evaluate_content(category, metrics):
+    greenhouse_pct = metrics.get("greenhouse_pct")
+    try:
+        greenhouse_pct_f = float(greenhouse_pct) if greenhouse_pct is not None else 0.0
+    except Exception:
+        greenhouse_pct_f = 0.0
+
+    dependencies = [
+        "The farm depends on reliable water availability for irrigation, crop growth, boreholes, and day-to-day farm operations.",
+        "Vegetation condition and tree cover matter because they help with soil protection, microclimate stability, pollinator support, and ecological resilience.",
+        "Rainfall patterns and heat conditions matter because they influence crop stress, pest pressure, irrigation demand, and farming uncertainty.",
+    ]
+    if greenhouse_pct_f > 0.5:
+        dependencies.append("Protected farming areas depend on temperature control, ventilation, water reliability, and stable operating conditions inside and around greenhouse structures.")
+
+    impacts = []
+    try:
+        if metrics.get("ndvi_trend") is not None and float(metrics.get("ndvi_trend")) < -0.03:
+            impacts.append("Vegetation decline suggests land pressure, ecological stress, or reduced ground cover in the surrounding landscape.")
+        else:
+            impacts.append("Vegetation condition does not show a strong decline signal, but should still be monitored over time.")
+    except Exception:
+        impacts.append("Vegetation condition should be monitored over time as part of routine screening.")
+
+    try:
+        if metrics.get("forest_loss_pct") is not None and float(metrics.get("forest_loss_pct")) > 5:
+            impacts.append("Forest loss is visible in the broader landscape, which may signal habitat pressure or land-use change that could affect long-term resilience.")
+        else:
+            impacts.append("Forest-loss pressure does not appear to be a dominant signal within the current assessment area.")
+    except Exception:
+        pass
+
+    try:
+        if metrics.get("water_occ") is not None and float(metrics.get("water_occ")) < 5:
+            impacts.append("Visible surface water is limited, which may increase dependence on groundwater, storage, or external supply.")
+    except Exception:
+        pass
+
+    signals = []
+    try:
+        ndvi = metrics.get("ndvi_current")
+        if ndvi is not None:
+            ndvi = float(ndvi)
+            if ndvi < 0.25:
+                signals.append("Current vegetation condition is low, which may point to stressed or sparse vegetation.")
+            elif ndvi < 0.45:
+                signals.append("Current vegetation condition is moderate, suggesting mixed vegetation performance across the site.")
+            else:
+                signals.append("Current vegetation condition is relatively strong, suggesting healthier vegetation cover in the assessed area.")
+    except Exception:
+        pass
+
+    try:
+        rain = metrics.get("rain_anom_pct")
+        if rain is not None:
+            rain = float(rain)
+            if rain < -10:
+                signals.append("Recent rainfall is below the long-term baseline, which may increase water uncertainty and climate stress.")
+            elif rain > 10:
+                signals.append("Recent rainfall is above the long-term baseline, which may improve water availability but can also shift pest, runoff, or flood conditions.")
+            else:
+                signals.append("Recent rainfall is broadly close to the long-term baseline, so rainfall alone does not suggest a major change signal.")
+    except Exception:
+        pass
+
+    try:
+        lst = metrics.get("lst_mean")
+        if lst is not None:
+            lst = float(lst)
+            if lst > 30:
+                signals.append("Heat conditions are elevated, which may increase crop stress, water demand, or site cooling needs.")
+            else:
+                signals.append("Heat conditions are present but not unusually elevated in the current screening output.")
+    except Exception:
+        pass
+
+    # Greenhouse and farm-operation proxies.
+    greenhouse_detected = greenhouse_pct_f > 0.5
+    water_reliability = "Moderate"
+    try:
+        rain = metrics.get("rain_anom_pct")
+        trend = metrics.get("ndvi_trend")
+        if (rain is not None and float(rain) < -10) or (trend is not None and float(trend) < -0.03):
+            water_reliability = "Low"
+        elif rain is not None and float(rain) > 5:
+            water_reliability = "High"
+    except Exception:
+        pass
+
+    soil_stress = "Moderate"
+    try:
+        ndvi = metrics.get("ndvi_current")
+        trend = metrics.get("ndvi_trend")
+        if (ndvi is not None and float(ndvi) < 0.25) or (trend is not None and float(trend) < -0.03):
+            soil_stress = "High"
+        elif ndvi is not None and float(ndvi) > 0.45:
+            soil_stress = "Low"
+    except Exception:
+        pass
+
+    greenhouse_heat = exposure_level(metrics.get("lst_mean"), False, 29, 31)
+    greenhouse_humidity = "Moderate"
+    irrigation_demand = "Moderate"
+    pest_risk = "Moderate"
+    production_reliability = "Moderate"
+    funding_readiness = "Moderate"
+    try:
+        rain = metrics.get("rain_anom_pct")
+        ndvi = metrics.get("ndvi_current")
+        lst = metrics.get("lst_mean")
+        water_occ = metrics.get("water_occ")
+        if rain is not None and float(rain) < -10:
+            irrigation_demand = "High"
+            greenhouse_humidity = "Low"
+        elif rain is not None and float(rain) > 10:
+            greenhouse_humidity = "High"
+            irrigation_demand = "Low"
+        if lst is not None and float(lst) > 30:
+            pest_risk = "High"
+        if ndvi is not None and float(ndvi) > 0.45 and irrigation_demand != "High":
+            production_reliability = "High"
+        if ndvi is not None and float(ndvi) < 0.25:
+            production_reliability = "Low"
+        if water_occ is not None and float(water_occ) < 5 and irrigation_demand == "High":
+            funding_readiness = "Low"
+        elif production_reliability == "High":
+            funding_readiness = "High"
+    except Exception:
+        pass
+
+    water_exposure = exposure_level(metrics.get("water_occ"), True, 5, 15)
+    heat_exposure = exposure_level(metrics.get("lst_mean"), False, 28, 30)
+
+    vegetation_exposure = "Unknown"
+    try:
+        ndvi = metrics.get("ndvi_current")
+        trend = metrics.get("ndvi_trend")
+        vegetation_exposure = "Low"
+        if (ndvi is not None and float(ndvi) < 0.25) or (trend is not None and float(trend) < -0.03):
+            vegetation_exposure = "High"
+        elif (ndvi is not None and float(ndvi) < 0.45) or (trend is not None and float(trend) < -0.01):
+            vegetation_exposure = "Moderate"
+    except Exception:
+        pass
+
+    greenhouse_text = (
+        "Satellite screening suggests protected farming structures may be present in part of the assessment area. Greenhouse-specific heat, humidity, pest, and irrigation signals should therefore be read alongside the open-field indicators."
+        if greenhouse_detected else
+        "Satellite screening does not show a strong greenhouse signal in the selected area, so the current outputs should mainly be read as open-field and surrounding-landscape screening."
+    )
+
+    return {
+        "narrative": "This section reviews the site's current environmental condition, historical change, and the main ways the business may depend on nature or place pressure on it. The aim is to translate the indicators into practical business meaning.",
+        "dependencies": dependencies,
+        "impacts": impacts,
+        "signals": signals,
+        "exposure_cards": [
+            {"label": "Water exposure", "value": water_exposure, "subtext": "Based on visible surface-water context"},
+            {"label": "Heat exposure", "value": heat_exposure, "subtext": "Based on recent land surface temperature"},
+            {"label": "Vegetation exposure", "value": vegetation_exposure, "subtext": "Based on current vegetation and trend"},
+        ],
+        "greenhouse_detected": "Yes" if greenhouse_detected else "No",
+        "greenhouse_text": greenhouse_text,
+        "greenhouse_cards": [
+            {"label": "Greenhouse share", "value": fmt_num(metrics.get('greenhouse_pct'), 1, '%'), "subtext": "Satellite screening proxy"},
+            {"label": "Greenhouse heat", "value": greenhouse_heat, "subtext": "Useful for ventilation and cooling planning"},
+            {"label": "Humidity risk", "value": greenhouse_humidity, "subtext": "Screening proxy from climate context"},
+            {"label": "Pest risk", "value": pest_risk, "subtext": "Screening proxy from heat and vegetation"},
+        ],
+        "operations_cards": [
+            {"label": "Water reliability", "value": water_reliability, "subtext": "Useful for irrigation planning"},
+            {"label": "Soil stress", "value": soil_stress, "subtext": "Proxy from vegetation and rainfall"},
+            {"label": "Irrigation demand", "value": irrigation_demand, "subtext": "Higher demand means more water planning"},
+            {"label": "Production reliability", "value": production_reliability, "subtext": "Simple screening of environmental stability"},
+            {"label": "Funding readiness", "value": funding_readiness, "subtext": "Environmental stability can support bankability conversations"},
+        ],
+        "why_it_matters": "For Panuka, these signals matter because water reliability, vegetation condition, greenhouse heat, pest pressure, and irrigation demand can affect production, SME support, soil protection, and financial resilience.",
+    }
 
 def df_chart_to_png_bytes(df, x_col, y_col, title, kind="line", x_label="Year", y_label="Value"):
     if df is None or df.empty:
@@ -486,7 +1189,7 @@ st.markdown("---")
 left_col, right_col = st.columns(2)
 with left_col:
     st.selectbox(
-        "Select business or assessment area",
+        "Select Panuka pilot site",
         PRESETS,
         key="preset_selector",
         on_change=preset_changed,
@@ -495,16 +1198,16 @@ with left_col:
 with right_col:
     focus1, focus2 = st.columns(2)
     with focus1:
-        if st.button("Focus Panuka", use_container_width=True):
-            apply_preset("Panuka AgriBiz Hub")
+        if st.button("Focus Site 1", width='stretch'):
+            apply_preset("Panuka Site 1")
             st.rerun()
     with focus2:
-        if st.button("Focus BL Turner", use_container_width=True):
-            apply_preset("BL Turner Group")
+        if st.button("Focus Site 2", width='stretch'):
+            apply_preset("Panuka Site 2")
             st.rerun()
 
 st.selectbox(
-    "Business category",
+    "Pilot category",
     CATEGORIES,
     key="category_selector",
 )
@@ -542,6 +1245,7 @@ with hist2:
     hist_end = st.number_input("Historical end year", min_value=1981, max_value=LAST_FULL_YEAR, value=LAST_FULL_YEAR, step=1)
 
 st.markdown("### Site Selection")
+st.caption("The two Panuka pilot sites are shown as map points. Select a site to centre the map there, then draw the assessment polygon around the relevant production area.")
 m = build_map(
     center=st.session_state["map_center"],
     zoom=st.session_state["map_zoom"],
@@ -581,7 +1285,7 @@ with st.expander("Show geometry payload"):
     else:
         st.json(geometry_payload)
 
-run = st.button("Run Assessment", use_container_width=True)
+run = st.button("Run Assessment", width='stretch')
 
 if run:
     if ee_geom is None:
@@ -612,12 +1316,18 @@ if run:
         ndvi_img = ndvi_with_polygon(ee_geom, LAST_FULL_YEAR)
         landcover_img = landcover_with_polygon(ee_geom)
         forest_loss_img = forest_loss_with_polygon(ee_geom)
+        flood_risk_img = flood_risk_with_polygon(ee_geom)
+        soil_condition_img = soil_condition_with_polygon(ee_geom)
+        heat_stress_img = heat_stress_with_polygon(ee_geom, int(hist_end))
         veg_change_img = vegetation_change_with_polygon(ee_geom, int(hist_start), int(hist_end))
 
         satellite_url = image_thumb_url(satellite_img, ee_geom, 2200)
         ndvi_url = image_thumb_url(ndvi_img, ee_geom, 1400)
         landcover_url = image_thumb_url(landcover_img, ee_geom, 1400)
         forest_loss_url = image_thumb_url(forest_loss_img, ee_geom, 1400)
+        flood_risk_url = image_thumb_url(flood_risk_img, ee_geom, 1400)
+        soil_condition_url = image_thumb_url(soil_condition_img, ee_geom, 1400)
+        heat_stress_url = image_thumb_url(heat_stress_img, ee_geom, 1400)
         veg_change_url = image_thumb_url(veg_change_img, ee_geom, 1400)
 
         ndvi_hist_df = prep_year_df(
@@ -683,14 +1393,14 @@ if run:
                 "bytes": landcover_bar_to_png_bytes(lc_df),
             },
             {
-                "title": "Historical soil moisture",
-                "description": "This plot shows how mean soil moisture has changed over time. Lower values may suggest drier surface conditions and higher crop-water stress.",
-                "bytes": df_chart_to_png_bytes(soil_hist_df, "year", "value", "Historical Soil Moisture (SMAP)", kind="line", y_label="m³/m³"),
+                "title": "Rainfall vs vegetation health",
+                "description": "This scatter plot compares rainfall anomaly proxy against vegetation condition. It helps show whether vegetation performance is moving with rainfall conditions.",
+                "bytes": rainfall_ndvi_scatter_to_png_bytes(make_rainfall_ndvi_df(ndvi_hist_df, rain_hist_df)),
             },
             {
-                "title": "Historical evapotranspiration",
-                "description": "This plot shows how evapotranspiration has changed over time. Higher values may indicate stronger crop-water demand and greater pressure on irrigation planning.",
-                "bytes": df_chart_to_png_bytes(et_hist_df, "year", "value", "Historical Evapotranspiration (MODIS)", kind="line", y_label="mm"),
+                "title": "Water balance proxy",
+                "description": "This chart compares recent rainfall with current evapotranspiration to support a simple water-demand interpretation.",
+                "bytes": water_balance_proxy_to_png_bytes(rain_hist_df, metrics),
             },
         ]
 
@@ -720,7 +1430,24 @@ if run:
                 "description": "This image highlights where forest loss has been detected in or around the selected area.",
                 "bytes": fetch_pdf_ee_image_bytes(forest_loss_img, ee_geom, dimensions=850),
             },
+            {
+                "title": "Flood risk map with polygon",
+                "description": f"This image shows mapped 1-in-100-year flood depth. The current mean flood-risk value is {fmt_num(metrics.get('flood_risk'), 2, ' m')}. Darker blues indicate deeper potential flooding.",
+                "bytes": fetch_pdf_ee_image_bytes(flood_risk_img, ee_geom, dimensions=850),
+            },
+            {
+                "title": "Soil condition map with polygon",
+                "description": f"This image uses soil organic carbon as a simple soil-condition layer. The current soil organic carbon value is {fmt_num(metrics.get('soil_organic_carbon'), 1)} and the topsoil texture class is {metrics.get('soil_texture_class')}.",
+                "bytes": fetch_pdf_ee_image_bytes(soil_condition_img, ee_geom, dimensions=850),
+            },
+            {
+                "title": "Heat stress map with polygon",
+                "description": f"This image shows average land surface temperature. The current heat-context value is {fmt_num(metrics.get('lst_mean'), 1, ' °C')}; warmer colours indicate hotter surfaces.",
+                "bytes": fetch_pdf_ee_image_bytes(heat_stress_img, ee_geom, dimensions=850),
+            },
         ]
+
+        automated_flags = build_automated_risk_flags(metrics)
 
         pdf_bytes = build_pdf_report(
             preset=preset,
@@ -731,22 +1458,29 @@ if run:
             risk=risk,
             image_payloads=image_payloads,
             chart_payloads=chart_payloads,
+            automated_flags=automated_flags,
         )
 
         st.session_state["report_payload"] = {
             "pdf_bytes": pdf_bytes,
-            "file_name": f"EagleNatureInsight_Report_{date.today().isoformat()}.pdf",
+            "file_name": f"Panuka_EagleNatureInsight_Report_{date.today().isoformat()}.pdf",
         }
+
+        automated_flags = build_automated_risk_flags(metrics)
 
         st.session_state["results_payload"] = {
             "preset": preset,
             "category": category,
             "metrics": metrics,
             "risk": risk,
+            "automated_flags": automated_flags,
             "satellite_url": satellite_url,
             "ndvi_url": ndvi_url,
             "landcover_url": landcover_url,
             "forest_loss_url": forest_loss_url,
+            "flood_risk_url": flood_risk_url,
+            "soil_condition_url": soil_condition_url,
+            "heat_stress_url": heat_stress_url,
             "veg_change_url": veg_change_url,
             "ndvi_hist_df": ndvi_hist_df,
             "rain_hist_df": rain_hist_df,
@@ -754,6 +1488,8 @@ if run:
             "forest_hist_df": forest_hist_df,
             "water_hist_df": water_hist_df,
             "lc_df": lc_df,
+            "hist_start": int(hist_start),
+            "hist_end": int(hist_end),
         }
 
     st.success("Assessment complete.")
@@ -764,7 +1500,7 @@ if st.session_state["report_payload"] is not None:
         data=st.session_state["report_payload"]["pdf_bytes"],
         file_name=st.session_state["report_payload"]["file_name"],
         mime="application/pdf",
-        use_container_width=True,
+        width='stretch',
     )
 
 results = st.session_state["results_payload"]
@@ -774,44 +1510,73 @@ if results is not None:
     category = results["category"]
     metrics = results["metrics"]
     risk = results["risk"]
+    automated_flags = results.get("automated_flags", [])
     satellite_url = results["satellite_url"]
     ndvi_url = results["ndvi_url"]
     landcover_url = results["landcover_url"]
-    forest_loss_url = results["forest_loss_url"]
-    veg_change_url = results["veg_change_url"]
+    forest_loss_url = results.get("forest_loss_url")
+    flood_risk_url = results.get("flood_risk_url")
+    soil_condition_url = results.get("soil_condition_url")
+    heat_stress_url = results.get("heat_stress_url")
+    veg_change_url = results.get("veg_change_url")
     ndvi_hist_df = results["ndvi_hist_df"]
     rain_hist_df = results["rain_hist_df"]
     lst_hist_df = results["lst_hist_df"]
     forest_hist_df = results["forest_hist_df"]
     water_hist_df = results["water_hist_df"]
     lc_df = results["lc_df"]
+    hist_start = results.get("hist_start")
+    hist_end = results.get("hist_end")
+
     overview = build_overview_content(preset, category, metrics, risk)
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(
-        ["Overview", "LEAP", "Images", "Trends", "Detailed Results"]
+    if any(k not in results for k in ["flood_risk_url", "soil_condition_url", "heat_stress_url"]):
+        st.info("This result was generated before the new flood, soil, and heat maps were added. Run the assessment again to populate the new image products.")
+    evaluate = build_evaluate_content(category, metrics)
+
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
+        ["Overview", "Locate", "Evaluate", "Assess", "Prepare", "Images", "Trends", "Detailed Results"]
     )
 
     with tab1:
-        st.markdown("## EagleNatureInsight Overview")
-        st.write(f"**Business preset:** {preset}")
-        st.write(f"**Business category:** {category}")
+        st.markdown("## Panuka Pilot Overview")
         st.write(overview["narrative"])
+        st.write(f"**Panuka pilot site:** {preset}")
+        st.write(f"**Pilot category:** {category}")
 
         r1c1, r1c2, r1c3 = st.columns(3)
         with r1c1:
-            metric_card("Area analysed", fmt_num(metrics.get("area_ha"), 1, " ha"), "Assessment area")
+            metric_card("Current NDVI", fmt_num(metrics.get("ndvi_current"), 3), "Sentinel-2")
         with r1c2:
-            metric_card("Current vegetation", fmt_num(metrics.get("ndvi_current"), 3), "NDVI")
+            metric_card("Rainfall Anomaly", fmt_num(metrics.get("rain_anom_pct"), 1, "%"), "vs 1981–2010")
         with r1c3:
-            metric_card("Vegetation trend", fmt_num(metrics.get("ndvi_trend"), 3), "Historical change")
+            metric_card("Heat Context", fmt_num(metrics.get("lst_mean"), 1, " °C"), "Recent LST mean")
 
-        r2c1, r2c2, r2c3 = st.columns(3)
+        r2c1, r2c2, r2c3, r2c4 = st.columns(4)
         with r2c1:
-            metric_card("Rainfall context", fmt_num(metrics.get("rain_anom_pct"), 1, "%"), "vs 1981–2010")
+            metric_card("Tree Cover", fmt_num(metrics.get("tree_pct"), 1, "%"), "Composite forest estimate")
         with r2c2:
-            metric_card("Tree cover", fmt_num(metrics.get("tree_pct"), 1, "%"), "Current landscape")
+            metric_card("Tree Signal", fmt_num(metrics.get("dynamic_world_tree_prob_pct"), 1, "%"), "Dynamic World tree probability")
         with r2c3:
-            metric_card("Surface water", fmt_num(metrics.get("water_occ"), 1), "Occurrence")
+            metric_card("Surface Water", fmt_num(metrics.get("water_occ"), 1), "JRC occurrence")
+        with r2c4:
+            metric_card("Water Footprint", fmt_num(metrics.get("water_max_extent_pct"), 1, "%"), "JRC max water extent")
+
+        st.caption("Tree and water readings now combine multiple datasets so sparse cover or seasonal water is less likely to appear as a false zero.")
+
+        g1, g2 = st.columns(2)
+        with g1:
+            metric_card("Greenhouse Share", fmt_num(metrics.get("greenhouse_pct"), 1, "%"), "Estimated share of site")
+        with g2:
+            metric_card("Seasonal Water", fmt_num(metrics.get("seasonal_water_area_pct"), 1, "%"), "Area with seasonal water signal")
+
+        r3c1, r3c2, r3c3 = st.columns(3)
+        with r3c1:
+            metric_card("Soil Moisture", fmt_num(metrics.get("soil_moisture"), 3), "SMAP surface soil moisture")
+        with r3c2:
+            metric_card("Evapotranspiration", fmt_num(metrics.get("evapotranspiration"), 1), "Crop water demand context")
+        with r3c3:
+            metric_card("Market Access", fmt_num(metrics.get("travel_time_to_market"), 1, " min"), "Approximate travel time")
 
         st.markdown("### Top findings")
         for finding in overview["findings"]:
@@ -821,40 +1586,134 @@ if results is not None:
         st.write(overview["business_relevance"])
 
     with tab2:
-        st.markdown("## LEAP outputs")
-
-        st.markdown("### Locate")
+        st.markdown("## Locate")
         st.write("The selected area has been defined and screened for land cover, visible nature context, and surrounding landscape conditions.")
-        st.write(f"Area of interest: {fmt_num(metrics.get('area_ha'), 1, ' ha')}")
-        st.write(f"Tree cover: {fmt_num(metrics.get('tree_pct'), 1, '%')}")
-        st.write(f"Cropland: {fmt_num(metrics.get('cropland_pct'), 1, '%')}")
-        st.write(f"Built-up: {fmt_num(metrics.get('built_pct'), 1, '%')}")
-        st.write(f"Surface water occurrence: {fmt_num(metrics.get('water_occ'), 1)}")
 
-        st.markdown("### Evaluate")
-        st.write("Current and historical environmental conditions have been reviewed using the dashboard indicators.")
-        st.write(f"Current NDVI: {fmt_num(metrics.get('ndvi_current'), 3)}")
-        st.write(f"Historical NDVI trend: {fmt_num(metrics.get('ndvi_trend'), 3)}")
-        st.write(f"Rainfall anomaly: {fmt_num(metrics.get('rain_anom_pct'), 1, '%')}")
-        st.write(f"Recent LST mean: {fmt_num(metrics.get('lst_mean'), 1, ' °C')}")
-        st.write(f"Forest loss % of baseline forest: {fmt_num(metrics.get('forest_loss_pct'), 1, '%')}")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            metric_card("Area analysed", fmt_num(metrics.get("area_ha"), 1, " ha"), "Assessment area")
+        with c2:
+            metric_card("Tree cover", fmt_num(metrics.get("tree_pct"), 1, "%"), "Composite landscape estimate")
+        with c3:
+            metric_card("Surface water", fmt_num(metrics.get("water_occ"), 1), "JRC occurrence")
+        with c4:
+            metric_card("Water extent", fmt_num(metrics.get("water_max_extent_pct"), 1, "%"), "Maximum observed water footprint")
 
-        st.markdown("### Assess")
-        st.write("The dashboard interprets the evidence into a business-facing nature risk signal and identifies the most relevant issues.")
-        st.write(f"Nature risk score: {risk['score']} / 100")
-        st.write(f"Risk band: {risk['band']}")
-        if risk["flags"]:
-            for flag in risk["flags"]:
-                st.write(f"• {flag}")
-        else:
-            st.write("• No major automated flags triggered in the current rule set.")
+        st.write(f"**Cropland:** {fmt_num(metrics.get('cropland_pct'), 1, '%')}")
+        st.write(f"**Built-up land:** {fmt_num(metrics.get('built_pct'), 1, '%')}")
+        st.write(f"**Dynamic World tree signal:** {fmt_num(metrics.get('dynamic_world_tree_prob_pct'), 1, '%')}")
+        st.write(f"**Permanent water area:** {fmt_num(metrics.get('permanent_water_area_pct'), 1, '%')}")
+        st.write(f"**Seasonal water area:** {fmt_num(metrics.get('seasonal_water_area_pct'), 1, '%')}")
 
-        st.markdown("### Prepare")
+        st.markdown("### Current land-cover composition")
+        if not lc_df.empty:
+            fig = build_landcover_bar(lc_df)
+            st.plotly_chart(fig, width='stretch', key="locate_landcover_bar")
+            st.caption("This chart shows how the selected area is currently divided across land-cover classes such as tree cover, cropland, built-up land, and water.")
+
+    with tab3:
+        st.markdown("## Evaluate")
+        st.write(evaluate["narrative"])
+
+        e1, e2, e3 = st.columns(3)
+        with e1:
+            metric_card("Current vegetation", fmt_num(metrics.get("ndvi_current"), 3), "NDVI")
+        with e2:
+            metric_card("Vegetation trend", fmt_num(metrics.get("ndvi_trend"), 3), "Historical change")
+        with e3:
+            metric_card("Rainfall context", fmt_num(metrics.get("rain_anom_pct"), 1, "%"), "vs 1981–2010")
+
+        e4, e5, e6, e7 = st.columns(4)
+        with e4:
+            metric_card("Heat context", fmt_num(metrics.get("lst_mean"), 1, " °C"), "Recent LST mean")
+        with e5:
+            metric_card("Forest-loss context", fmt_num(metrics.get("forest_loss_pct"), 1, "%"), "% of baseline forest")
+        with e6:
+            metric_card("Water context", fmt_num(metrics.get("water_occ"), 1), "Surface water occurrence")
+        with e7:
+            metric_card("Water seasonality", fmt_num(metrics.get("water_seasonality_months"), 1, " months"), "Average months with water where water occurs")
+
+        st.markdown("### Dependencies on nature")
+        for item in evaluate["dependencies"]:
+            st.write(f"• {item}")
+
+        st.markdown("### Possible impacts and pressures")
+        for item in evaluate["impacts"]:
+            st.write(f"• {item}")
+
+        st.markdown("### What the indicators are suggesting")
+        for item in evaluate["signals"]:
+            st.write(f"• {item}")
+
+        st.markdown("### Exposure summary")
+        x1, x2, x3 = st.columns(3)
+        for col, card in zip([x1, x2, x3], evaluate["exposure_cards"]):
+            with col:
+                metric_card(card["label"], card["value"], card["subtext"])
+
+        st.markdown("### Greenhouse and protected farming screening")
+        st.write(f"**Greenhouse detected:** {evaluate['greenhouse_detected']}")
+        st.write(evaluate["greenhouse_text"])
+        g1, g2, g3, g4 = st.columns(4)
+        for col, card in zip([g1, g2, g3, g4], evaluate["greenhouse_cards"]):
+            with col:
+                metric_card(card["label"], card["value"], card["subtext"])
+
+        st.markdown("### Farm operations and business impact")
+        o1, o2, o3, o4, o5 = st.columns(5)
+        for col, card in zip([o1, o2, o3, o4, o5], evaluate["operations_cards"]):
+            with col:
+                metric_card(card["label"], card["value"], card["subtext"])
+
+        st.markdown("### Additional agricultural intelligence")
+        a1, a2, a3, a4, a5 = st.columns(5)
+        with a1:
+            metric_card("Soil moisture", fmt_num(metrics.get("soil_moisture"), 3), "Current surface soil moisture")
+        with a2:
+            metric_card("Evapotranspiration", fmt_num(metrics.get("evapotranspiration"), 1), "Crop water loss context")
+        with a3:
+            metric_card("Flood risk", fmt_num(metrics.get("flood_risk"), 2), "River flood hazard proxy")
+        with a4:
+            metric_card("Fire risk", fmt_num(metrics.get("fire_risk"), 1), "Recent burned-area signal")
+        with a5:
+            metric_card("Water frequency", fmt_num(metrics.get("water_presence_frequency"), 1, "%"), "Monthly water presence in recent years")
+
+        st.markdown("### Why this matters")
+        st.write(evaluate["why_it_matters"])
+
+    with tab4:
+        st.markdown("## Assess")
+        st.write("This section uses a portfolio of indicators rather than a single score. It helps explain what the current environmental conditions may mean for farm operations and what responses may be practical.")
+
+        matrix_rows = build_tnfd_matrix(metrics)
+        st.markdown("### TNFD environmental risk matrix")
+        matrix_df = pd.DataFrame(matrix_rows)[["indicator", "value", "status", "meaning", "response", "scale"]]
+        matrix_df.columns = ["Indicator", "Current value", "Status", "What this means", "Suggested response", "Scale used"]
+        matrix_df = matrix_df.fillna("Not available").astype(str)
+        st.dataframe(matrix_df, width='stretch', hide_index=True)
+        st.caption("Status is automatically interpreted relative to practical screening bands for each indicator.")
+
+        st.markdown("### Automated risk flags")
+        flags_df = risk_flags_to_dataframe(automated_flags)
+        st.dataframe(flags_df, width='stretch', hide_index=True)
+
+        st.markdown("### Overall environmental interpretation")
+        for statement in build_overall_environmental_interpretation(metrics):
+            st.write(f"• {statement}")
+
+    with tab5:
+        st.markdown("## Prepare")
         st.write("The dashboard provides category-specific next actions based on the current signals and business context.")
         for rec in risk["recs"]:
             st.write(f"• {rec}")
+        st.markdown("### Suggested use frequency")
+        st.write("• **Seasonally:** before planting, at mid-season, and before harvest for farm decisions.")
+        st.write("• **After major weather events:** to screen flood, heat, or vegetation impacts.")
+        st.write("• **Annually:** for portfolio review, reporting, and finance-readiness conversations with partners or funders.")
+        st.markdown("### TNFD and SME fit")
+        st.write("This pilot keeps TNFD LEAP visible while translating the outputs into simple language for SMEs, incubation support, and farm decision-making.")
 
-    with tab3:
+    with tab6:
         st.markdown("## Image outputs")
         st.write("**NDVI image:** greener usually means stronger vegetation; redder usually means weaker vegetation.")
         st.write("**Vegetation change map:** green usually means improvement; red usually means decline.")
@@ -863,67 +1722,96 @@ if results is not None:
 
         img1, img2 = st.columns(2)
         with img1:
-            st.image(satellite_url, caption="Satellite image with polygon", use_container_width=True)
-            st.image(ndvi_url, caption="NDVI image with polygon", use_container_width=True)
-            st.image(veg_change_url, caption="Vegetation change map with polygon", use_container_width=True)
+            if satellite_url:
+                st.image(satellite_url, caption="Satellite image with polygon", width='stretch')
+            if ndvi_url:
+                st.image(ndvi_url, caption="NDVI image with polygon", width='stretch')
+            if veg_change_url:
+                st.image(veg_change_url, caption="Vegetation change map with polygon", width='stretch')
+            if flood_risk_url:
+                st.image(flood_risk_url, caption=f"Flood risk map with polygon — current flood-risk value: {fmt_num(metrics.get('flood_risk'), 2, ' m')}", width='stretch')
         with img2:
-            st.image(landcover_url, caption="Land-cover image with polygon", use_container_width=True)
-            st.image(forest_loss_url, caption="Forest loss map with polygon", use_container_width=True)
+            if landcover_url:
+                st.image(landcover_url, caption="Land-cover image with polygon", width='stretch')
+            if forest_loss_url:
+                st.image(forest_loss_url, caption="Forest loss map with polygon", width='stretch')
+            if soil_condition_url:
+                st.image(soil_condition_url, caption=f"Soil condition map with polygon — soil organic carbon: {fmt_num(metrics.get('soil_organic_carbon'), 1)}, topsoil texture class: {metrics.get('soil_texture_class')}", width='stretch')
+            if heat_stress_url:
+                st.image(heat_stress_url, caption=f"Heat stress map with polygon — current land surface temperature: {fmt_num(metrics.get('lst_mean'), 1, ' °C')}", width='stretch')
 
-    with tab4:
-        st.markdown("## Historical plots")
+    with tab7:
+        st.markdown("## Historical plots and additional evidence")
 
         if not ndvi_hist_df.empty:
             fig = px.line(ndvi_hist_df, x="year", y="value", title="Historical NDVI (Landsat)")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch', key="trend_ndvi")
         if not rain_hist_df.empty:
             fig = px.line(rain_hist_df, x="year", y="value", title="Historical Rainfall (CHIRPS)")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch', key="trend_rain")
         if not lst_hist_df.empty:
             fig = px.line(lst_hist_df, x="year", y="value", title="Historical Land Surface Temperature (MODIS)")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch', key="trend_lst")
         if not forest_hist_df.empty:
             fig = px.bar(forest_hist_df, x="year", y="value", title="Historical Forest Loss by Year (Hansen)")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch', key="trend_forest")
         if not water_hist_df.empty:
             fig = px.line(water_hist_df, x="year", y="value", title="Historical Water Presence (JRC)")
-            st.plotly_chart(fig, use_container_width=True)
-        if not soil_hist_df.empty:
-            fig = px.line(soil_hist_df, x="year", y="value", title="Historical Soil Moisture (SMAP)")
-            st.plotly_chart(fig, use_container_width=True)
-        if not et_hist_df.empty:
-            fig = px.line(et_hist_df, x="year", y="value", title="Historical Evapotranspiration (MODIS)")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch', key="trend_water")
 
-    with tab5:
+        rain_ndvi_df = make_rainfall_ndvi_df(ndvi_hist_df, rain_hist_df)
+        if not rain_ndvi_df.empty:
+            fig = px.scatter(
+                rain_ndvi_df,
+                x="rain_anom_pct_proxy",
+                y="ndvi_mean",
+                hover_data=["year"],
+                title="Rainfall vs Vegetation Health",
+                trendline="ols",
+                labels={"rain_anom_pct_proxy": "Rainfall anomaly proxy (%)", "ndvi_mean": "NDVI"},
+            )
+            st.plotly_chart(fig, width='stretch', key="trend_rain_ndvi")
+
+        wb_bytes = water_balance_proxy_to_png_bytes(rain_hist_df, metrics)
+        if wb_bytes is not None:
+            st.image(wb_bytes, caption="Water Balance Proxy: recent rainfall mean vs current evapotranspiration", width='stretch')
+
+    with tab8:
         st.markdown("## Detailed results")
 
         detail_df = pd.DataFrame(
             {
                 "Metric": [
                     "Business preset",
-                    "Business category",
+                    "Pilot category",
                     "Selected range",
                     "Area (ha)",
                     "Current NDVI",
                     "Tree cover (%)",
+                    "WorldCover tree class (%)",
+                    "Hansen current tree cover (%)",
+                    "Dynamic World tree probability (%)",
                     "Cropland (%)",
                     "Built-up (%)",
                     "Surface water occurrence",
-                    "Rainfall variability (%)",
-                    "Rainfall reliability index",
-                    "Distance to water (m)",
-                    "Slope mean (°)",
-                    "Wetness index",
-                    "Woody cover (%)",
-                    "Soil moisture",
-                    "Soil moisture anomaly",
-                    "Evapotranspiration",
-                    "Groundwater anomaly",
+                    "Maximum water extent (%)",
+                    "Permanent water area (%)",
+                    "Seasonal water area (%)",
+                    "Average water seasonality (months)",
+                    "Recent monthly water presence (%)",
+                    "Dynamic World water probability (%)",
                     "Recent LST mean (°C)",
                     "Forest loss (ha)",
                     "Forest loss (%)",
                     "Biome context proxy",
+                    "Soil moisture",
+                    "Evapotranspiration",
+                    "Groundwater anomaly",
+                    "Soil organic carbon",
+                    "Soil texture class",
+                    "Flood risk",
+                    "Fire risk",
+                    "Travel time to market (min)",
                 ],
                 "Value": [
                     preset,
@@ -932,28 +1820,36 @@ if results is not None:
                     metrics.get("area_ha"),
                     metrics.get("ndvi_current"),
                     metrics.get("tree_pct"),
+                    metrics.get("worldcover_tree_pct"),
+                    metrics.get("hansen_tree_pct"),
+                    metrics.get("dynamic_world_tree_prob_pct"),
                     metrics.get("cropland_pct"),
                     metrics.get("built_pct"),
                     metrics.get("water_occ"),
-                    metrics.get("rain_variability_pct"),
-                    metrics.get("rain_reliability_index"),
-                    metrics.get("distance_to_water_m"),
-                    metrics.get("slope_mean"),
-                    metrics.get("wetness_index"),
-                    metrics.get("woody_cover_pct"),
-                    metrics.get("soil_moisture"),
-                    metrics.get("soil_moisture_anomaly"),
-                    metrics.get("evapotranspiration"),
-                    metrics.get("groundwater_anomaly"),
+                    metrics.get("water_max_extent_pct"),
+                    metrics.get("permanent_water_area_pct"),
+                    metrics.get("seasonal_water_area_pct"),
+                    metrics.get("water_seasonality_months"),
+                    metrics.get("water_presence_frequency"),
+                    metrics.get("dynamic_world_water_prob_pct"),
                     metrics.get("lst_mean"),
                     metrics.get("forest_loss_ha"),
                     metrics.get("forest_loss_pct"),
                     metrics.get("bio_proxy"),
+                    metrics.get("soil_moisture"),
+                    metrics.get("evapotranspiration"),
+                    metrics.get("groundwater_anomaly"),
+                    metrics.get("soil_organic_carbon"),
+                    metrics.get("soil_texture_class"),
+                    metrics.get("flood_risk"),
+                    metrics.get("fire_risk"),
+                    metrics.get("travel_time_to_market"),
                 ],
             }
         )
-        st.dataframe(detail_df, use_container_width=True)
+        detail_df["Value"] = detail_df["Value"].apply(lambda x: "Not available" if x is None else str(x))
+        st.dataframe(detail_df, width='stretch')
 
         if not lc_df.empty:
             fig = build_landcover_bar(lc_df)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch', key="detail_landcover_bar")
