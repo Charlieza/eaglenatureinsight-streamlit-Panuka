@@ -3,6 +3,7 @@ from datetime import date
 from io import BytesIO
 
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import streamlit as st
 import folium
@@ -809,7 +810,7 @@ def make_rainfall_ndvi_df(ndvi_hist_df, rain_hist_df):
     return df
 
 
-def rainfall_ndvi_scatter_to_png_bytes(df):
+def build_rainfall_ndvi_scatter_fig(df):
     if df.empty:
         return None
     fig = px.scatter(
@@ -819,8 +820,28 @@ def rainfall_ndvi_scatter_to_png_bytes(df):
         hover_data=["year"],
         title="Rainfall vs Vegetation Health",
         labels={"rain_anom_pct_proxy": "Rainfall anomaly proxy (%)", "ndvi_mean": "NDVI"},
-        trendline="ols",
     )
+    clean_df = df[["rain_anom_pct_proxy", "ndvi_mean"]].dropna().copy()
+    if len(clean_df) >= 2 and clean_df["rain_anom_pct_proxy"].nunique() >= 2:
+        x = clean_df["rain_anom_pct_proxy"].astype(float).to_numpy()
+        y = clean_df["ndvi_mean"].astype(float).to_numpy()
+        slope, intercept = np.polyfit(x, y, 1)
+        x_line = np.linspace(x.min(), x.max(), 100)
+        y_line = slope * x_line + intercept
+        fig.add_scatter(
+            x=x_line,
+            y=y_line,
+            mode="lines",
+            name="Linear trend",
+            hovertemplate="Rainfall anomaly proxy: %{x:.1f}%<br>NDVI trend: %{y:.3f}<extra></extra>",
+        )
+    return fig
+
+
+def rainfall_ndvi_scatter_to_png_bytes(df):
+    fig = build_rainfall_ndvi_scatter_fig(df)
+    if fig is None:
+        return None
     img = BytesIO()
     fig.write_image(img, format="png", width=1200, height=700)
     return img.getvalue()
@@ -1563,6 +1584,8 @@ if results is not None:
             metric_card("Water Footprint", fmt_num(metrics.get("water_max_extent_pct"), 1, "%"), "JRC max water extent")
 
         st.caption("Tree and water readings now combine multiple datasets so sparse cover or seasonal water is less likely to appear as a false zero.")
+        if metrics.get("small_site_context_applied"):
+            st.info(f"A near-site context buffer of about {fmt_num(metrics.get('analysis_context_buffer_m'), 0, ' m')} was also used for selected indicators because the drawn polygon is small ({fmt_num(metrics.get('area_ha'), 2, ' ha')}). This helps reduce false gaps from 10–30 m pixels.")
 
         g1, g2 = st.columns(2)
         with g1:
@@ -1602,8 +1625,10 @@ if results is not None:
         st.write(f"**Cropland:** {fmt_num(metrics.get('cropland_pct'), 1, '%')}")
         st.write(f"**Built-up land:** {fmt_num(metrics.get('built_pct'), 1, '%')}")
         st.write(f"**Dynamic World tree signal:** {fmt_num(metrics.get('dynamic_world_tree_prob_pct'), 1, '%')}")
+        st.write(f"**Near-site tree context:** {fmt_num(metrics.get('context_tree_pct'), 1, '%')}")
         st.write(f"**Permanent water area:** {fmt_num(metrics.get('permanent_water_area_pct'), 1, '%')}")
         st.write(f"**Seasonal water area:** {fmt_num(metrics.get('seasonal_water_area_pct'), 1, '%')}")
+        st.write(f"**Near-site water context:** {fmt_num(metrics.get('context_water_occ'), 1)}")
 
         st.markdown("### Current land-cover composition")
         if not lc_df.empty:
@@ -1666,7 +1691,7 @@ if results is not None:
                 metric_card(card["label"], card["value"], card["subtext"])
 
         st.markdown("### Additional agricultural intelligence")
-        a1, a2, a3, a4, a5 = st.columns(5)
+        a1, a2, a3, a4, a5, a6 = st.columns(6)
         with a1:
             metric_card("Soil moisture", fmt_num(metrics.get("soil_moisture"), 3), "Current surface soil moisture")
         with a2:
@@ -1677,6 +1702,18 @@ if results is not None:
             metric_card("Fire risk", fmt_num(metrics.get("fire_risk"), 1), "Recent burned-area signal")
         with a5:
             metric_card("Water frequency", fmt_num(metrics.get("water_presence_frequency"), 1, "%"), "Monthly water presence in recent years")
+        with a6:
+            metric_card("Current wetness", fmt_num(metrics.get("mndwi_current"), 3), "Sentinel-2 MNDWI")
+
+        s1, s2, s3, s4 = st.columns(4)
+        with s1:
+            metric_card("Current moisture", fmt_num(metrics.get("ndmi_current"), 3), "Sentinel-2 NDMI")
+        with s2:
+            metric_card("Current NDWI", fmt_num(metrics.get("ndwi_current"), 3), "Sentinel-2 NDWI")
+        with s3:
+            metric_card("Elevation", fmt_num(metrics.get("elevation_mean"), 1, " m"), "SRTM")
+        with s4:
+            metric_card("Slope", fmt_num(metrics.get("slope_mean"), 1, " °"), "Terrain slope")
 
         st.markdown("### Why this matters")
         st.write(evaluate["why_it_matters"])
@@ -1761,16 +1798,9 @@ if results is not None:
 
         rain_ndvi_df = make_rainfall_ndvi_df(ndvi_hist_df, rain_hist_df)
         if not rain_ndvi_df.empty:
-            fig = px.scatter(
-                rain_ndvi_df,
-                x="rain_anom_pct_proxy",
-                y="ndvi_mean",
-                hover_data=["year"],
-                title="Rainfall vs Vegetation Health",
-                trendline="ols",
-                labels={"rain_anom_pct_proxy": "Rainfall anomaly proxy (%)", "ndvi_mean": "NDVI"},
-            )
-            st.plotly_chart(fig, width='stretch', key="trend_rain_ndvi")
+            fig = build_rainfall_ndvi_scatter_fig(rain_ndvi_df)
+            if fig is not None:
+                st.plotly_chart(fig, width='stretch', key="trend_rain_ndvi")
 
         wb_bytes = water_balance_proxy_to_png_bytes(rain_hist_df, metrics)
         if wb_bytes is not None:
@@ -1794,12 +1824,17 @@ if results is not None:
                     "Cropland (%)",
                     "Built-up (%)",
                     "Surface water occurrence",
+                    "Near-site water context",
                     "Maximum water extent (%)",
                     "Permanent water area (%)",
                     "Seasonal water area (%)",
                     "Average water seasonality (months)",
                     "Recent monthly water presence (%)",
                     "Dynamic World water probability (%)",
+                    "Current NDWI",
+                    "Current MNDWI",
+                    "Current NDMI",
+                    "Near-site tree context (%)",
                     "Recent LST mean (°C)",
                     "Forest loss (ha)",
                     "Forest loss (%)",
@@ -1809,6 +1844,8 @@ if results is not None:
                     "Groundwater anomaly",
                     "Soil organic carbon",
                     "Soil texture class",
+                    "Elevation (m)",
+                    "Slope (degrees)",
                     "Flood risk",
                     "Fire risk",
                     "Travel time to market (min)",
@@ -1826,12 +1863,17 @@ if results is not None:
                     metrics.get("cropland_pct"),
                     metrics.get("built_pct"),
                     metrics.get("water_occ"),
+                    metrics.get("context_water_occ"),
                     metrics.get("water_max_extent_pct"),
                     metrics.get("permanent_water_area_pct"),
                     metrics.get("seasonal_water_area_pct"),
                     metrics.get("water_seasonality_months"),
                     metrics.get("water_presence_frequency"),
                     metrics.get("dynamic_world_water_prob_pct"),
+                    metrics.get("ndwi_current"),
+                    metrics.get("mndwi_current"),
+                    metrics.get("ndmi_current"),
+                    metrics.get("context_tree_pct"),
                     metrics.get("lst_mean"),
                     metrics.get("forest_loss_ha"),
                     metrics.get("forest_loss_pct"),
@@ -1841,6 +1883,8 @@ if results is not None:
                     metrics.get("groundwater_anomaly"),
                     metrics.get("soil_organic_carbon"),
                     metrics.get("soil_texture_class"),
+                    metrics.get("elevation_mean"),
+                    metrics.get("slope_mean"),
                     metrics.get("flood_risk"),
                     metrics.get("fire_risk"),
                     metrics.get("travel_time_to_market"),
